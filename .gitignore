@@ -4,3 +4,7 @@
 # local
 /.docs/_stash
 /.docs/note
+
+# local skills
+/.claude/skills/go-tdd
+/.docs/operations/policies/coding-go.md
