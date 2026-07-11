@@ -1,1 +1,6 @@
+# settings
 .env
+
+# local
+/.docs/_stash
+/.docs/note
