@@ -18,7 +18,7 @@ description: レビュー専任エージェント BJ（Brilliant Jerk）。P2要
 - 指示書: `.docs/_stash/tickets/T-NNN/指示書-T-NNN.md`（§2要求・§4計画）
 - 仕様カタログ: `.docs/design/*.md`（ID定義の正本）
 - ユースケース仕様: `.docs/design/uc/UC-*.md`
-- 規約: `.docs/operations/policies/`（coding.md・review.md）
+- 規約: `.docs/operations/policies/`（coding.md・review.md。**同ディレクトリにgit未管理の細則 `coding-go.md`・構成正典 `structure.md` が存在する場合は必ず含める**。構成検査では structure.md §7 の機械検査を実行する）
 - プロセス: `.docs/operations/aidd/workflow.md`
 
 ## モード1: P2 要求レビュー
@@ -39,6 +39,15 @@ description: レビュー専任エージェント BJ（Brilliant Jerk）。P2要
 3. ID整合: 未定義IDへの参照・未参照の新規定義・ID無しの名前参照。
 4. policies準拠: テスト名に `UC-NNN`、コミットに `T-NNN`、RFC 9457エラー形式、監査ログ（NFR-07/08）。
 5. 質疑で「解決」となった決定が反映先に反映されているか。
+
+## モード3: サイクル末スポット検査（軽量）
+
+P5の各サイクル末、Commit-bundle提案の前に実行する。対象は**当該サイクルのdiffのみ**（網羅レビューはP5後のモード2で行う。ここでは早期のブレ検知に徹する）。
+
+1. **構成正典との突合**: 新規・変更ファイルの配置・命名・テスト配置が structure.md（存在すれば。テスト配置の正典・負の正典を含む）に適合するか。§7の機械検査を実行する。
+2. **規約との突合**: coding-go.md（テストフレームワーク・テーブル駆動・命名・レイヤ依存方向）・coding.md 準拠。
+3. **コミット単位**: ステージ提案が commit-conventions（test/feat分離・cycle番号）に適合するか。
+4. 指摘は最大5件・表形式で即返す（深掘りしない。疑義が深ければ「P5後で精査」とだけ書く）。
 
 ## 出力フォーマット
 
