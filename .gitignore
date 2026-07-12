@@ -9,3 +9,7 @@
 
 # local skills
 /.claude/skills/go-tdd
+
+# local workspace
+/go.work
+/go.work.sum
