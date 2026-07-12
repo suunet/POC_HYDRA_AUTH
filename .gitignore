@@ -13,3 +13,6 @@
 # local workspace
 /go.work
 /go.work.sum
+
+# air build artifacts
+/tmp/
