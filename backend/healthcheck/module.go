@@ -27,5 +27,5 @@ func (m *Module) RegisterContracts(c *contracts.Contracts) {
 }
 
 func (m *Module) RegisterHttp(e *echo.Echo) {
-	e.GET("/health", m.handler.GetHealth)
+	apihttp.RegisterRoutes(e, m.handler)
 }
