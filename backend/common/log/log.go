@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"time"
 )
 
 type ctxKey int
@@ -21,6 +22,9 @@ func New(w io.Writer, svc string) *slog.Logger {
 			switch a.Key {
 			case slog.TimeKey:
 				a.Key = "ts"
+				if t, ok := a.Value.Any().(time.Time); ok {
+					a.Value = slog.TimeValue(t.UTC())
+				}
 			case slog.LevelKey:
 				a.Key = "lvl"
 			case slog.MessageKey:
