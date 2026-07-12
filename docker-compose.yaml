@@ -1,0 +1,74 @@
+name: poc-app-hydra
+
+services:
+  app-service:
+    build:
+      context: .
+      dockerfile: .docker/local/app/Dockerfile
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - gomod-cache:/go/pkg/mod
+      - gobuild-cache:/root/.cache/go-build
+    command: ["air"]
+    ports:
+      - "${APP_SERVICE_PORT:-8080}:8080"
+    environment:
+      APP_PORT: "8080"
+
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      HYDRA_DB_PASSWORD: ${HYDRA_DB_PASSWORD:-secret}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./.docker/local/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+
+  hydra-migrate:
+    image: oryd/hydra:v2.2
+    command: migrate sql -e --yes
+    environment:
+      DSN: postgres://hydra:${HYDRA_DB_PASSWORD:-secret}@postgres:5432/hydra?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  hydra:
+    image: oryd/hydra:v2.2
+    command: serve all --dev
+    ports:
+      - "${HYDRA_PUBLIC_PORT:-4444}:4444"
+      - "${HYDRA_ADMIN_PORT:-4445}:4445"
+    environment:
+      DSN: postgres://hydra:${HYDRA_DB_PASSWORD:-secret}@postgres:5432/hydra?sslmode=disable
+      SECRETS_SYSTEM: ${HYDRA_SECRETS_SYSTEM:-dev-secret-please-change-me}
+      URLS_SELF_ISSUER: http://localhost:${HYDRA_PUBLIC_PORT:-4444}
+      URLS_LOGIN: http://localhost:${AUTH_SERVICE_PORT:-8081}/login
+      URLS_CONSENT: http://localhost:${AUTH_SERVICE_PORT:-8081}/consent
+    depends_on:
+      postgres:
+        condition: service_healthy
+      hydra-migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  gomod-cache:
+  gobuild-cache:

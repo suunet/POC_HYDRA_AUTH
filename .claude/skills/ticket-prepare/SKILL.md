@@ -11,7 +11,7 @@ P2 指摘ゼロ（`ticket-review` から連続実行）。
 
 ## 手順（実装チケット）
 
-1. 対象BUCのUCを `.docs/design/buc.md` で発番し（UC-NNN。行追加のみ）、テンプレ（`.docs/operations/templates/ユースケース仕様.md`）から `UC-NNN-<英語slug>.md` を `.docs/design/uc/` に起草する（三経路・主成功シナリオ・代替フロー・シーケンス図・該当時トグル）。
+1. 対象BUCのUCを `.docs/design/buc.md` の**該当BUC行・関連UC列**に発番し（UC-NNN。セル追記のみ）、テンプレ（`.docs/operations/templates/ユースケース仕様.md`）から `UC-NNN.md`（ファイル名はIDのみ）を `.docs/design/uc/` に起草する（三経路・主成功シナリオ・代替フロー・シーケンス図・該当時トグル）。
 2. §3（変更前の現状）: 対象IDで `.docs/` と既存コードをgrepし、影響範囲・現状を要約して記入する。
 3. §4（実行計画）: 方針と§4.2サイクル計画（TDDサイクル分割）を記入する。
 
