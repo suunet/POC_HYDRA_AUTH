@@ -5,7 +5,7 @@ FROM golang:${GO_VERSION}-bookworm AS builder
 ARG CMD=app
 WORKDIR /src
 
-COPY go.work* ./
+COPY go.mod go.sum* ./
 COPY backend ./backend
 
 RUN --mount=type=cache,target=/go/pkg/mod \

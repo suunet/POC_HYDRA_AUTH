@@ -1,10 +1,11 @@
 # settings
 .env
 
-# local
+# local settings
 /.docs/_stash
 /.docs/note
+/.docs/operations/policies/coding-go.md
+/.docs/operations/policies/structure.md
 
 # local skills
 /.claude/skills/go-tdd
-/.docs/operations/policies/coding-go.md
