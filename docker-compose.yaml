@@ -34,6 +34,25 @@ services:
       timeout: 3s
       retries: 10
 
+  auth-service:
+    build:
+      context: .
+      dockerfile: .docker/local/app/Dockerfile
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - gomod-cache:/go/pkg/mod
+      - gobuild-cache:/root/.cache/go-build
+    command: ["air", "-c", ".air.auth.toml"]
+    ports:
+      - "${AUTH_SERVICE_PORT:-8081}:8081"
+    environment:
+      AUTH_PORT: "8081"
+      POSTGRES_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-app}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   redis:
     image: redis:7-alpine
     ports:

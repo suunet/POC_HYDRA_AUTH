@@ -43,7 +43,7 @@ func TestUC001_HealthQuery_EmitsUseCaseLogs(t *testing.T) {
 
 func newTestEcho(t *testing.T) http.Handler {
 	t.Helper()
-	e, err := backend.Build(context.Background(), applog.New(&bytes.Buffer{}, "app-service"))
+	e, err := backend.BuildApp(context.Background(), applog.New(&bytes.Buffer{}, "app-service"))
 	require.NoError(t, err)
 	return e
 }
@@ -65,6 +65,8 @@ func TestUC001_UnknownPath_Returns404(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newTestEcho(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unknown", nil))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+	// NFR-06: エラーレスポンスは RFC 9457（application/problem+json）
+	assert.Contains(t, rec.Header().Get("Content-Type"), "application/problem+json")
 }
 
 // UC-001: 代替フロー — 非対応メソッドは405（Q-9）
@@ -72,4 +74,6 @@ func TestUC001_HealthMethodNotAllowed_Returns405(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newTestEcho(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/health", nil))
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+	// NFR-06: エラーレスポンスは RFC 9457（application/problem+json）
+	assert.Contains(t, rec.Header().Get("Content-Type"), "application/problem+json")
 }

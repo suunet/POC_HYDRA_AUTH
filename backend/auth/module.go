@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 
+	apihttp "poc-app-hydra/backend/auth/api/http"
 	"poc-app-hydra/backend/common"
 	"poc-app-hydra/backend/common/module/contracts"
 )
@@ -15,11 +16,15 @@ import (
 var embedMigrations embed.FS
 
 type Module struct {
-	pgxDb *pgxpool.Pool
+	pgxDb   *pgxpool.Pool
+	handler *apihttp.Handler
 }
 
 func NewModule(pgxDb *pgxpool.Pool) *Module {
-	return &Module{pgxDb: pgxDb}
+	return &Module{
+		pgxDb:   pgxDb,
+		handler: apihttp.NewHandler(),
+	}
 }
 
 func (m *Module) Init(ctx context.Context) error {
@@ -37,5 +42,5 @@ func (m *Module) RegisterContracts(c *contracts.Contracts) {
 }
 
 func (m *Module) RegisterHttp(e *echo.Echo) {
-	// TODO: T-005 サイクル3（API-first生成）で SCR-01（登録API）を登録する
+	apihttp.Register(e, m.handler)
 }

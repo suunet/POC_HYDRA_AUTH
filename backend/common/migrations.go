@@ -24,7 +24,11 @@ func MigrateDatabaseUp(
 	migrationsDir string,
 ) error {
 	db := stdlib.OpenDBFromPool(pool)
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			applog.FromContext(ctx).With("ctx", "migrations", "error", err).Error("closing migration db handle failed")
+		}
+	}()
 
 	d, err := iofs.New(fs, migrationsDir)
 	if err != nil {
@@ -52,10 +56,10 @@ func MigrateDatabaseUp(
 	defer func() {
 		srcErr, dbErr := m.Close()
 		if srcErr != nil {
-			applog.FromContext(ctx).With("error", srcErr).Error("closing migration source failed")
+			applog.FromContext(ctx).With("ctx", "migrations", "error", srcErr).Error("closing migration source failed")
 		}
 		if dbErr != nil {
-			applog.FromContext(ctx).With("error", dbErr).Error("closing migration database failed")
+			applog.FromContext(ctx).With("ctx", "migrations", "error", dbErr).Error("closing migration database failed")
 		}
 	}()
 
@@ -67,7 +71,7 @@ func MigrateDatabaseUp(
 		case <-finished:
 			return
 		case <-ctx.Done():
-			applog.FromContext(ctx).Info("Interrupt received, stopping migrations...")
+			applog.FromContext(ctx).Info("Interrupt received, stopping migrations...", "ctx", "migrations")
 			m.GracefulStop <- true
 		}
 	}()

@@ -1,0 +1,96 @@
+openapi: "3.0.0"
+info:
+  version: 1.0.0
+  title: Auth
+  description: |
+    auth-service の公開API。エラーレスポンスは RFC 9457（NFR-06・application/problem+json）。
+paths:
+  /auth/register:
+    post:
+      summary: アカウントを登録する
+      operationId: registerAccount
+      tags:
+        - commands
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAccountRequest'
+      responses:
+        '201':
+          description: 登録を受け付けた（FR-01・メールアドレス重複時も同一応答＝列挙攻撃対策）
+        '400':
+          description: バリデーションエラー（VAR-01/VAR-02違反・E1/E2）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/validation-error
+                title: Bad Request
+                status: 400
+        '429':
+          description: 登録レートリミット超過（VAR-16・E4。登録済み/未登録に関わらず一様挙動）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/rate-limit-exceeded
+                title: Too Many Requests
+                status: 429
+                retry_after: 300
+        '503':
+          description: メール送信失敗（E3。登録・トークン保存はロールバック済み）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/mail-delivery-error
+                title: Service Unavailable
+                status: 503
+components:
+  schemas:
+    RegisterAccountRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: VAR-01（RFC5322準拠・最大254文字）
+        password:
+          type: string
+          minLength: 15
+          maxLength: 64
+          description: VAR-02（最小15文字・最大64文字・文字種の混在強制なし）
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details（NFR-06）。retry_after・revocation_reason は拡張フィールド
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          description: VAR-15のベースURI配下（例 https://example.com/probs/validation-error）
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        retry_after:
+          type: integer
+          description: レート制限超過時の再試行可能秒数（E4）
+        revocation_reason:
+          type: string
+          description: セッション失効理由コード（VAR-10・本APIでは未使用）
