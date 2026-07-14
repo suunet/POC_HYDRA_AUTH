@@ -122,83 +122,60 @@ boundary "メールサーバー" as メールサーバー
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "管理者\n(super_admin)" as 管理者
-participant "POST /admin/invitations" as 招待API
-participant "AdminInvitationUseCase" as ユースケース
-participant "UserRepository\n(DB)" as ユーザーRepo
-participant "InvitationTokenRepository\n(DB)" as 招待トークンRepo
-participant "Redis" as Redis
-participant "メールサーバー" as メールサーバー
-
-管理者 -> 招待API : POST /admin/invitations\n{ email, role }\n[Authorization: Bearer <accessToken>]
-招待API -> ユースケース : invite(email, role)
-
-ユースケース -> ユースケース : validateEmail(email)
-
-alt E1: メールアドレス形式不正
-  ユースケース --> 招待API : ValidationError
-  招待API --> 管理者 : 400 Bad Request\napplication/problem+json\ntype: .../validation-error
-end
-
-ユースケース -> ユースケース : validateRole(role)
-
-alt E2: 無効なロール指定
-  ユースケース --> 招待API : ValidationError
-  招待API --> 管理者 : 400 Bad Request\napplication/problem+json\ntype: .../validation-error
-end
-
-ユースケース -> Redis : checkRateLimit(email)
-Redis --> ユースケース : record
-
-alt E3: レートリミット超過（TTL 5分以内）
-  ユースケース --> 招待API : RateLimitExceededError
-  招待API --> 管理者 : 429 Too Many Requests\napplication/problem+json\ntype: .../rate-limit-exceeded
-end
-
-ユースケース -> ユーザーRepo : findAdminRoleByEmail(email)
-ユーザーRepo --> ユースケース : result
-
-alt E4: 管理者ロール付与済み
-  ユースケース --> 招待API : RoleAlreadyAssignedError
-  招待API --> 管理者 : 409 Conflict\napplication/problem+json\ntype: .../role-already-assigned
-end
-
-ユースケース -> 招待トークンRepo : findValidByEmail(email)
-招待トークンRepo --> ユースケース : existingToken
-
-opt A1: 既存の有効な招待トークンが存在する（再招待）
-  ユースケース -> 招待トークンRepo : invalidate(existingToken)
-end
-
-ユースケース -> ユースケース : generateInvitationToken\n(email, role, expires: 24h)
-ユースケース -> 招待トークンRepo : save(invitationToken{ email, role, expiresAt })
-招待トークンRepo --> ユースケース : savedToken
-
-ユースケース -> メールサーバー : sendInvitationEmail(email, token)
-
-alt E5: メール送信失敗
-  メールサーバー --> ユースケース : error
-  ユースケース -> 招待トークンRepo : rollback()\n（新トークン保存・既存トークン無効化を含むトランザクション全体）
-  note right #FFcccc : ERROR ログ\n{ ctx: "admin_invitation",\nmsg: "招待メール送信失敗" }\nロールバック: トークンDB操作全体を取消
-  ユースケース --> 招待API : MailDeliveryError
-  招待API --> 管理者 : 503 Service Unavailable\napplication/problem+json\ntype: .../mail-delivery-error
-end
-
-メールサーバー --> ユースケース : sent
-
-ユースケース -> Redis : setRateLimitRecord(email, TTL: 5min)
-
-note right : INFO 監査ログ\n{ ctx: "admin_invitation", msg: "管理者招待" }
-
-ユースケース --> 招待API : success
-招待API --> 管理者 : 200 OK
-
-@enduml
+```mermaid
+sequenceDiagram
+  actor 管理者 as 管理者 (super_admin)
+  participant 招待API as POST /admin/invitations
+  participant ユースケース as AdminInvitationUseCase
+  participant ユーザーRepo as UserRepository (DB)
+  participant 招待トークンRepo as InvitationTokenRepository (DB)
+  participant Redis as Redis
+  participant メールサーバー as メールサーバー
+  管理者->>招待API: POST /admin/invitations<br/>{ email, role }<br/>[Authorization: Bearer <accessToken>]
+  招待API->>ユースケース: invite(email, role)
+  ユースケース->>ユースケース: validateEmail(email)
+  alt E1: メールアドレス形式不正
+  ユースケース-->>招待API: ValidationError
+  招待API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  end
+  ユースケース->>ユースケース: validateRole(role)
+  alt E2: 無効なロール指定
+  ユースケース-->>招待API: ValidationError
+  招待API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  end
+  ユースケース->>Redis: checkRateLimit(email)
+  Redis-->>ユースケース: record
+  alt E3: レートリミット超過（TTL 5分以内）
+  ユースケース-->>招待API: RateLimitExceededError
+  招待API-->>管理者: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
+  end
+  ユースケース->>ユーザーRepo: findAdminRoleByEmail(email)
+  ユーザーRepo-->>ユースケース: result
+  alt E4: 管理者ロール付与済み
+  ユースケース-->>招待API: RoleAlreadyAssignedError
+  招待API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../role-already-assigned
+  end
+  ユースケース->>招待トークンRepo: findValidByEmail(email)
+  招待トークンRepo-->>ユースケース: existingToken
+  opt A1: 既存の有効な招待トークンが存在する（再招待）
+  ユースケース->>招待トークンRepo: invalidate(existingToken)
+  end
+  ユースケース->>ユースケース: generateInvitationToken<br/>(email, role, expires: 24h)
+  ユースケース->>招待トークンRepo: save(invitationToken{ email, role, expiresAt })
+  招待トークンRepo-->>ユースケース: savedToken
+  ユースケース->>メールサーバー: sendInvitationEmail(email, token)
+  alt E5: メール送信失敗
+  メールサーバー-->>ユースケース: error
+  ユースケース->>招待トークンRepo: rollback()<br/>（新トークン保存・既存トークン無効化を含むトランザクション全体）
+  Note right of 招待トークンRepo: ERROR ログ<br/>{ ctx: "admin_invitation",<br/>msg: "招待メール送信失敗" }<br/>ロールバック: トークンDB操作全体を取消
+  ユースケース-->>招待API: MailDeliveryError
+  招待API-->>管理者: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error
+  end
+  メールサーバー-->>ユースケース: sent
+  ユースケース->>Redis: setRateLimitRecord(email, TTL: 5min)
+  Note right of Redis: INFO 監査ログ<br/>{ ctx: "admin_invitation", msg: "管理者招待" }
+  ユースケース-->>招待API: success
+  招待API-->>管理者: 200 OK
 ```
 
 ---

@@ -110,64 +110,47 @@ end note
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "ユーザー" as ユーザー
-participant "POST /auth/register" as 登録API
-participant "UserRegistrationUseCase" as ユースケース
-participant "UserRepository\n(DB)" as ユーザーRepo
-participant "EmailConfirmTokenRepository\n(DB)" as 確認トークンRepo
-participant "メールサーバー" as メールサーバー
-
-ユーザー -> 登録API : POST /auth/register\n{ email, password }
-登録API -> ユースケース : register(email, password)
-
-ユースケース -> ユースケース : validateEmail(email)
-
-alt メールアドレス形式バリデーション失敗
-  ユースケース --> 登録API : ValidationError
-  登録API --> ユーザー : 400 Bad Request\napplication/problem+json\ntype: .../validation-error
-end
-
-ユースケース -> ユースケース : validatePassword(password)
-
-alt パスワード強度バリデーション失敗
-  ユースケース --> 登録API : ValidationError
-  登録API --> ユーザー : 400 Bad Request\napplication/problem+json\ntype: .../validation-error
-end
-
-ユースケース -> ユーザーRepo : findByEmail(email)
-ユーザーRepo --> ユースケース : result
-
-alt メールアドレス未登録
-  ユースケース -> ユースケース : bcrypt hash(password)
-  ユースケース -> ユーザーRepo : save(user{ status: email_unverified, role: user })
-  ユーザーRepo --> ユースケース : savedUser
-
-  ユースケース -> 確認トークンRepo : save(emailConfirmToken{ expires_at: +24h })
-  確認トークンRepo --> ユースケース : token
-
-  ユースケース -> メールサーバー : sendConfirmEmail(token)
-
-  alt メール送信失敗
-    メールサーバー --> ユースケース : error
-    ユースケース -> ユーザーRepo : rollback()
-    ユースケース --> 登録API : MailDeliveryError
-    note right : ERROR ログ出力\n{ ctx: "user_registration", msg: "メール送信失敗", lvl: "ERROR" }
-    登録API --> ユーザー : 503 Service Unavailable\napplication/problem+json\ntype: .../mail-delivery-error
+```mermaid
+sequenceDiagram
+  actor ユーザー as ユーザー
+  participant 登録API as POST /auth/register
+  participant ユースケース as UserRegistrationUseCase
+  participant ユーザーRepo as UserRepository (DB)
+  participant 確認トークンRepo as EmailConfirmTokenRepository (DB)
+  participant メールサーバー as メールサーバー
+  ユーザー->>登録API: POST /auth/register<br/>{ email, password }
+  登録API->>ユースケース: register(email, password)
+  ユースケース->>ユースケース: validateEmail(email)
+  alt メールアドレス形式バリデーション失敗
+  ユースケース-->>登録API: ValidationError
+  登録API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
   end
-
-else メールアドレス登録済み（列挙攻撃対策）
-  note right of ユースケース : 登録処理・メール送信を行わず\n成功扱いで返す
-end
-
-ユースケース --> 登録API : success
-登録API --> ユーザー : 201 Created
-
-@enduml
+  ユースケース->>ユースケース: validatePassword(password)
+  alt パスワード強度バリデーション失敗
+  ユースケース-->>登録API: ValidationError
+  登録API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  end
+  ユースケース->>ユーザーRepo: findByEmail(email)
+  ユーザーRepo-->>ユースケース: result
+  alt メールアドレス未登録
+  ユースケース->>ユースケース: bcrypt hash(password)
+  ユースケース->>ユーザーRepo: save(user{ status: email_unverified, role: user })
+  ユーザーRepo-->>ユースケース: savedUser
+  ユースケース->>確認トークンRepo: save(emailConfirmToken{ expires_at: +24h })
+  確認トークンRepo-->>ユースケース: token
+  ユースケース->>メールサーバー: sendConfirmEmail(token)
+  alt メール送信失敗
+  メールサーバー-->>ユースケース: error
+  ユースケース->>ユーザーRepo: rollback()
+  ユースケース-->>登録API: MailDeliveryError
+  Note right of 登録API: ERROR ログ出力<br/>{ ctx: "user_registration", msg: "メール送信失敗", lvl: "ERROR" }
+  登録API-->>ユーザー: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error
+  end
+  else メールアドレス登録済み（列挙攻撃対策）
+  Note right of ユースケース: 登録処理・メール送信を行わず<br/>成功扱いで返す
+  end
+  ユースケース-->>登録API: success
+  登録API-->>ユーザー: 201 Created
 ```
 
 ---

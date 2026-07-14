@@ -118,123 +118,91 @@ entity "RefreshTokenRepository" as リフレッシュトークンRepo
 
 ## シーケンス図（管理者による削除）
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "管理者\n(super_admin)" as 管理者
-participant "DELETE /admin/accounts/\n:userId" as 管理者削除API
-participant "AccountDeleteUseCase" as ユースケース
-participant "UserRepository\n(DB)" as ユーザーRepo
-participant "RefreshTokenRepository\n(DB)" as リフレッシュトークンRepo
-
-管理者 -> 管理者削除API : DELETE /admin/accounts/:userId\n[Authorization: Bearer <accessToken>]
-管理者削除API -> ユースケース : deleteByAdmin(targetUserId)
-
-ユースケース -> ユーザーRepo : findById(targetUserId, excludeDeleted: true)
-ユーザーRepo --> ユースケース : result
-
-alt E1: ユーザーが存在しない
-  ユースケース --> 管理者削除API : UserNotFoundError
-  管理者削除API --> 管理者 : 404 Not Found\napplication/problem+json\ntype: .../user-not-found
-end
-
-opt 対象ユーザーが super_admin の場合
-  ユースケース -> ユーザーRepo : countSuperAdmins()
-  ユーザーRepo --> ユースケース : count
-
-  alt E3: super_admin が1人のみ
-    ユースケース --> 管理者削除API : LastSuperAdminError
-    管理者削除API --> 管理者 : 409 Conflict\napplication/problem+json\ntype: .../last-super-admin
+```mermaid
+sequenceDiagram
+  actor 管理者 as 管理者 (super_admin)
+  participant 管理者削除API as DELETE /admin/accounts/ :userId
+  participant ユースケース as AccountDeleteUseCase
+  participant ユーザーRepo as UserRepository (DB)
+  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
+  管理者->>管理者削除API: DELETE /admin/accounts/:userId<br/>[Authorization: Bearer <accessToken>]
+  管理者削除API->>ユースケース: deleteByAdmin(targetUserId)
+  ユースケース->>ユーザーRepo: findById(targetUserId, excludeDeleted: true)
+  ユーザーRepo-->>ユースケース: result
+  alt E1: ユーザーが存在しない
+  ユースケース-->>管理者削除API: UserNotFoundError
+  管理者削除API-->>管理者: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
   end
-end
-
-group トランザクション [ステップ4〜5]
-  ユースケース -> ユーザーRepo : softDelete(targetUserId)\n（GDPR null化を含む）
-  ユーザーRepo --> ユースケース : updated
-
-  ユースケース -> リフレッシュトークンRepo : revokeAllByUserId\n(targetUserId, reason: account_deleted)
-  リフレッシュトークンRepo --> ユースケース : revokedCount
-end
-
-alt E4: トランザクション失敗
-  note right #FFcccc : ERROR ログ\n{ ctx: "account_delete",\nmsg: "アカウント削除トランザクション失敗" }\nロールバック: 全操作を取消
-  ユースケース --> 管理者削除API : InternalError
-  管理者削除API --> 管理者 : 500 Internal Server Error\napplication/problem+json\ntype: .../internal-error
-end
-
-note right : INFO 監査ログ\n{ ctx: "account_delete", msg: "アカウント削除" }
-
-ユースケース --> 管理者削除API : success
-管理者削除API --> 管理者 : 200 OK\n{ revocation_reason: account_deleted }
-
-@enduml
+  opt 対象ユーザーが super_admin の場合
+  ユースケース->>ユーザーRepo: countSuperAdmins()
+  ユーザーRepo-->>ユースケース: count
+  alt E3: super_admin が1人のみ
+  ユースケース-->>管理者削除API: LastSuperAdminError
+  管理者削除API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../last-super-admin
+  end
+  end
+  critical トランザクション ステップ4〜5
+  ユースケース->>ユーザーRepo: softDelete(targetUserId)<br/>（GDPR null化を含む）
+  ユーザーRepo-->>ユースケース: updated
+  ユースケース->>リフレッシュトークンRepo: revokeAllByUserId<br/>(targetUserId, reason: account_deleted)
+  リフレッシュトークンRepo-->>ユースケース: revokedCount
+  end
+  alt E4: トランザクション失敗
+  Note right of ユースケース: ERROR ログ<br/>{ ctx: "account_delete",<br/>msg: "アカウント削除トランザクション失敗" }<br/>ロールバック: 全操作を取消
+  ユースケース-->>管理者削除API: InternalError
+  管理者削除API-->>管理者: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
+  end
+  Note right of 管理者: INFO 監査ログ<br/>{ ctx: "account_delete", msg: "アカウント削除" }
+  ユースケース-->>管理者削除API: success
+  管理者削除API-->>管理者: 200 OK<br/>{ revocation_reason: account_deleted }
 ```
 
 ---
 
 ## シーケンス図（ユーザーによる自己削除）
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "ユーザー" as ユーザー
-participant "DELETE /auth/account" as 自己削除API
-participant "AccountDeleteUseCase" as ユースケース
-participant "UserRepository\n(DB)" as ユーザーRepo
-participant "RefreshTokenRepository\n(DB)" as リフレッシュトークンRepo
-
-ユーザー -> 自己削除API : DELETE /auth/account\n{ password }\n[Authorization: Bearer <accessToken>]
-自己削除API -> ユースケース : deleteSelf(userId, password)
-
-ユースケース -> ユーザーRepo : findById(userId, excludeDeleted: true)
-ユーザーRepo --> ユースケース : user
-
-alt E1: ユーザーが存在しない
-  ユースケース --> 自己削除API : UserNotFoundError
-  自己削除API --> ユーザー : 404 Not Found\napplication/problem+json\ntype: .../user-not-found
-end
-
-ユースケース -> ユースケース : bcrypt verify(password, user.hashedPassword)
-
-alt E2: パスワード不一致
-  ユースケース --> 自己削除API : PasswordMismatchError
-  自己削除API --> ユーザー : 403 Forbidden\napplication/problem+json\ntype: .../password-mismatch
-end
-
-opt ユーザーが super_admin の場合
-  ユースケース -> ユーザーRepo : countSuperAdmins()
-  ユーザーRepo --> ユースケース : count
-
-  alt E3: super_admin が1人のみ
-    ユースケース --> 自己削除API : LastSuperAdminError
-    自己削除API --> ユーザー : 409 Conflict\napplication/problem+json\ntype: .../last-super-admin
+```mermaid
+sequenceDiagram
+  actor ユーザー as ユーザー
+  participant 自己削除API as DELETE /auth/account
+  participant ユースケース as AccountDeleteUseCase
+  participant ユーザーRepo as UserRepository (DB)
+  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
+  ユーザー->>自己削除API: DELETE /auth/account<br/>{ password }<br/>[Authorization: Bearer <accessToken>]
+  自己削除API->>ユースケース: deleteSelf(userId, password)
+  ユースケース->>ユーザーRepo: findById(userId, excludeDeleted: true)
+  ユーザーRepo-->>ユースケース: user
+  alt E1: ユーザーが存在しない
+  ユースケース-->>自己削除API: UserNotFoundError
+  自己削除API-->>ユーザー: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
   end
-end
-
-group トランザクション [ステップ4〜5]
-  ユースケース -> ユーザーRepo : softDelete(userId)\n（GDPR null化を含む）
-  ユーザーRepo --> ユースケース : updated
-
-  ユースケース -> リフレッシュトークンRepo : revokeAllByUserId\n(userId, reason: account_deleted)
-  リフレッシュトークンRepo --> ユースケース : revokedCount
-end
-
-alt E4: トランザクション失敗
-  note right #FFcccc : ERROR ログ\n{ ctx: "account_delete",\nmsg: "アカウント削除トランザクション失敗" }\nロールバック: 全操作を取消
-  ユースケース --> 自己削除API : InternalError
-  自己削除API --> ユーザー : 500 Internal Server Error\napplication/problem+json\ntype: .../internal-error
-end
-
-note right : INFO 監査ログ\n{ ctx: "account_delete", msg: "アカウント削除（自己削除）" }
-
-ユースケース --> 自己削除API : success
-自己削除API --> ユーザー : 200 OK\n{ revocation_reason: account_deleted }
-
-@enduml
+  ユースケース->>ユースケース: bcrypt verify(password, user.hashedPassword)
+  alt E2: パスワード不一致
+  ユースケース-->>自己削除API: PasswordMismatchError
+  自己削除API-->>ユーザー: 403 Forbidden<br/>application/problem+json<br/>type: .../password-mismatch
+  end
+  opt ユーザーが super_admin の場合
+  ユースケース->>ユーザーRepo: countSuperAdmins()
+  ユーザーRepo-->>ユースケース: count
+  alt E3: super_admin が1人のみ
+  ユースケース-->>自己削除API: LastSuperAdminError
+  自己削除API-->>ユーザー: 409 Conflict<br/>application/problem+json<br/>type: .../last-super-admin
+  end
+  end
+  critical トランザクション ステップ4〜5
+  ユースケース->>ユーザーRepo: softDelete(userId)<br/>（GDPR null化を含む）
+  ユーザーRepo-->>ユースケース: updated
+  ユースケース->>リフレッシュトークンRepo: revokeAllByUserId<br/>(userId, reason: account_deleted)
+  リフレッシュトークンRepo-->>ユースケース: revokedCount
+  end
+  alt E4: トランザクション失敗
+  Note right of ユースケース: ERROR ログ<br/>{ ctx: "account_delete",<br/>msg: "アカウント削除トランザクション失敗" }<br/>ロールバック: 全操作を取消
+  ユースケース-->>自己削除API: InternalError
+  自己削除API-->>ユーザー: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
+  end
+  Note right of ユーザー: INFO 監査ログ<br/>{ ctx: "account_delete", msg: "アカウント削除（自己削除）" }
+  ユースケース-->>自己削除API: success
+  自己削除API-->>ユーザー: 200 OK<br/>{ revocation_reason: account_deleted }
 ```
 
 ---

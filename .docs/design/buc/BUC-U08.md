@@ -104,59 +104,42 @@ entity "RefreshTokenRepository" as リフレッシュトークンRepo
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "ユーザー" as ユーザー
-participant "PUT /auth/password" as パスワード変更API
-participant "PasswordChangeUseCase" as ユースケース
-participant "UserRepository\n(DB)" as ユーザーRepo
-participant "RefreshTokenRepository\n(DB)" as リフレッシュトークンRepo
-
-ユーザー -> パスワード変更API : PUT /auth/password\n{ currentPassword, newPassword }\n[Authorization: Bearer <accessToken>]
-パスワード変更API -> ユースケース : changePassword(userId, currentPassword, newPassword)
-
-ユースケース -> ユースケース : validatePassword(newPassword)
-
-alt E1: パスワード強度不足
-  ユースケース --> パスワード変更API : ValidationError
-  パスワード変更API --> ユーザー : 400 Bad Request\napplication/problem+json\ntype: .../validation-error
-end
-
-ユースケース -> ユーザーRepo : findById(userId, excludeDeleted: true)
-ユーザーRepo --> ユースケース : user
-
-ユースケース -> ユースケース : bcrypt verify(currentPassword, user.hashedPassword)
-
-alt E2: 現在のパスワード不一致
-  ユースケース --> パスワード変更API : PasswordMismatchError
-  パスワード変更API --> ユーザー : 403 Forbidden\napplication/problem+json\ntype: .../password-mismatch
-end
-
-ユースケース -> ユースケース : bcrypt hash(newPassword)
-
-group トランザクション [ステップ7〜8]
-  ユースケース -> ユーザーRepo : updatePassword(userId, hashedPassword)
-  ユーザーRepo --> ユースケース : updated
-
-  ユースケース -> リフレッシュトークンRepo : revokeAllByUserId\n(userId, reason: password_changed)
-  リフレッシュトークンRepo --> ユースケース : revokedCount
-end
-
-alt E3: トランザクション失敗
-  note right #FFcccc : ERROR ログ\n{ ctx: "password_change",\nmsg: "パスワード変更トランザクション失敗" }\nロールバック: 全操作を取消
-  ユースケース --> パスワード変更API : InternalError
-  パスワード変更API --> ユーザー : 500 Internal Server Error\napplication/problem+json\ntype: .../internal-error
-end
-
-note right : INFO 監査ログ\n{ ctx: "password_change", msg: "パスワード変更" }
-
-ユースケース --> パスワード変更API : success
-パスワード変更API --> ユーザー : 200 OK\n{ revocation_reason: password_changed }
-
-@enduml
+```mermaid
+sequenceDiagram
+  actor ユーザー as ユーザー
+  participant パスワード変更API as PUT /auth/password
+  participant ユースケース as PasswordChangeUseCase
+  participant ユーザーRepo as UserRepository (DB)
+  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
+  ユーザー->>パスワード変更API: PUT /auth/password<br/>{ currentPassword, newPassword }<br/>[Authorization: Bearer <accessToken>]
+  パスワード変更API->>ユースケース: changePassword(userId, currentPassword, newPassword)
+  ユースケース->>ユースケース: validatePassword(newPassword)
+  alt E1: パスワード強度不足
+  ユースケース-->>パスワード変更API: ValidationError
+  パスワード変更API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  end
+  ユースケース->>ユーザーRepo: findById(userId, excludeDeleted: true)
+  ユーザーRepo-->>ユースケース: user
+  ユースケース->>ユースケース: bcrypt verify(currentPassword, user.hashedPassword)
+  alt E2: 現在のパスワード不一致
+  ユースケース-->>パスワード変更API: PasswordMismatchError
+  パスワード変更API-->>ユーザー: 403 Forbidden<br/>application/problem+json<br/>type: .../password-mismatch
+  end
+  ユースケース->>ユースケース: bcrypt hash(newPassword)
+  critical トランザクション ステップ7〜8
+  ユースケース->>ユーザーRepo: updatePassword(userId, hashedPassword)
+  ユーザーRepo-->>ユースケース: updated
+  ユースケース->>リフレッシュトークンRepo: revokeAllByUserId<br/>(userId, reason: password_changed)
+  リフレッシュトークンRepo-->>ユースケース: revokedCount
+  end
+  alt E3: トランザクション失敗
+  Note right of ユースケース: ERROR ログ<br/>{ ctx: "password_change",<br/>msg: "パスワード変更トランザクション失敗" }<br/>ロールバック: 全操作を取消
+  ユースケース-->>パスワード変更API: InternalError
+  パスワード変更API-->>ユーザー: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
+  end
+  Note right of ユーザー: INFO 監査ログ<br/>{ ctx: "password_change", msg: "パスワード変更" }
+  ユースケース-->>パスワード変更API: success
+  パスワード変更API-->>ユーザー: 200 OK<br/>{ revocation_reason: password_changed }
 ```
 
 ---

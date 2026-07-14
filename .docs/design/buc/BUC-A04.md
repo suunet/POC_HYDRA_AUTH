@@ -113,72 +113,53 @@ entity "RefreshTokenRepository" as リフレッシュトークンRepo
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "管理者\n(super_admin)" as 管理者
-participant "POST /admin/accounts/\n:userId/disable" as 無効化API
-participant "AccountDisableUseCase" as ユースケース
-participant "UserRepository\n(DB)" as ユーザーRepo
-participant "RefreshTokenRepository\n(DB)" as リフレッシュトークンRepo
-
-管理者 -> 無効化API : POST /admin/accounts/:userId/disable\n[Authorization: Bearer <accessToken>]
-無効化API -> ユースケース : disable(userId)
-
-ユースケース -> ユーザーRepo : findById(userId, excludeDeleted: true)
-ユーザーRepo --> ユースケース : result
-
-alt E1: ユーザーが存在しない
-  ユースケース --> 無効化API : UserNotFoundError
-  無効化API --> 管理者 : 404 Not Found\napplication/problem+json\ntype: .../user-not-found
-end
-
-ユースケース -> ユースケース : checkAdminRole(user)
-
-alt E2: 管理者ロール未保持
-  ユースケース --> 無効化API : NotAdminAccountError
-  無効化API --> 管理者 : 400 Bad Request\napplication/problem+json\ntype: .../not-admin-account
-end
-
-ユースケース -> ユースケース : checkNotDisabled(user)
-
-alt E3: 既に無効化済み
-  ユースケース --> 無効化API : AccountAlreadyDisabledError
-  無効化API --> 管理者 : 409 Conflict\napplication/problem+json\ntype: .../account-already-disabled
-end
-
-opt 対象ユーザーが super_admin の場合
-  ユースケース -> ユーザーRepo : countSuperAdmins()
-  ユーザーRepo --> ユースケース : count
-
-  alt E4: super_admin が1人のみ
-    ユースケース --> 無効化API : LastSuperAdminError
-    無効化API --> 管理者 : 409 Conflict\napplication/problem+json\ntype: .../last-super-admin
+```mermaid
+sequenceDiagram
+  actor 管理者 as 管理者 (super_admin)
+  participant 無効化API as POST /admin/accounts/ :userId/disable
+  participant ユースケース as AccountDisableUseCase
+  participant ユーザーRepo as UserRepository (DB)
+  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
+  管理者->>無効化API: POST /admin/accounts/:userId/disable<br/>[Authorization: Bearer <accessToken>]
+  無効化API->>ユースケース: disable(userId)
+  ユースケース->>ユーザーRepo: findById(userId, excludeDeleted: true)
+  ユーザーRepo-->>ユースケース: result
+  alt E1: ユーザーが存在しない
+  ユースケース-->>無効化API: UserNotFoundError
+  無効化API-->>管理者: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
   end
-end
-
-group トランザクション [ステップ6〜7]
-  ユースケース -> ユーザーRepo : disable(userId)
-  ユーザーRepo --> ユースケース : updated
-
-  ユースケース -> リフレッシュトークンRepo : revokeAllByUserId\n(userId, reason: account_disabled)
-  リフレッシュトークンRepo --> ユースケース : revokedCount
-end
-
-alt E5: トランザクション失敗
-  note right #FFcccc : ERROR ログ\n{ ctx: "account_disable",\nmsg: "アカウント無効化トランザクション失敗" }\nロールバック: 全操作を取消
-  ユースケース --> 無効化API : InternalError
-  無効化API --> 管理者 : 500 Internal Server Error\napplication/problem+json\ntype: .../internal-error
-end
-
-note right : INFO 監査ログ\n{ ctx: "account_disable", msg: "アカウント無効化" }
-
-ユースケース --> 無効化API : success
-無効化API --> 管理者 : 200 OK\n{ revocation_reason: account_disabled }
-
-@enduml
+  ユースケース->>ユースケース: checkAdminRole(user)
+  alt E2: 管理者ロール未保持
+  ユースケース-->>無効化API: NotAdminAccountError
+  無効化API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../not-admin-account
+  end
+  ユースケース->>ユースケース: checkNotDisabled(user)
+  alt E3: 既に無効化済み
+  ユースケース-->>無効化API: AccountAlreadyDisabledError
+  無効化API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../account-already-disabled
+  end
+  opt 対象ユーザーが super_admin の場合
+  ユースケース->>ユーザーRepo: countSuperAdmins()
+  ユーザーRepo-->>ユースケース: count
+  alt E4: super_admin が1人のみ
+  ユースケース-->>無効化API: LastSuperAdminError
+  無効化API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../last-super-admin
+  end
+  end
+  critical トランザクション ステップ6〜7
+  ユースケース->>ユーザーRepo: disable(userId)
+  ユーザーRepo-->>ユースケース: updated
+  ユースケース->>リフレッシュトークンRepo: revokeAllByUserId<br/>(userId, reason: account_disabled)
+  リフレッシュトークンRepo-->>ユースケース: revokedCount
+  end
+  alt E5: トランザクション失敗
+  Note right of ユースケース: ERROR ログ<br/>{ ctx: "account_disable",<br/>msg: "アカウント無効化トランザクション失敗" }<br/>ロールバック: 全操作を取消
+  ユースケース-->>無効化API: InternalError
+  無効化API-->>管理者: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
+  end
+  Note right of 管理者: INFO 監査ログ<br/>{ ctx: "account_disable", msg: "アカウント無効化" }
+  ユースケース-->>無効化API: success
+  無効化API-->>管理者: 200 OK<br/>{ revocation_reason: account_disabled }
 ```
 
 ---

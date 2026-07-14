@@ -114,70 +114,51 @@ entity "UserRepository" as ユーザーRepo
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "管理者\n(招待済み)" as 管理者
-participant "POST /auth/invitation/accept" as 招待受付API
-participant "InvitationAcceptUseCase" as ユースケース
-participant "InvitationTokenRepository\n(DB)" as 招待トークンRepo
-participant "UserRepository\n(DB)" as ユーザーRepo
-
-管理者 -> 招待受付API : POST /auth/invitation/accept\n{ token, password }
-招待受付API -> ユースケース : accept(token, password)
-
-ユースケース -> ユースケース : validatePassword(password)
-
-alt E1: パスワード強度不足
-  ユースケース --> 招待受付API : ValidationError
-  招待受付API --> 管理者 : 400 Bad Request\napplication/problem+json\ntype: .../validation-error
-end
-
-ユースケース -> 招待トークンRepo : findByToken(token)
-招待トークンRepo --> ユースケース : result
-
-alt E2: トークンが存在しない
-  ユースケース --> 招待受付API : InvalidTokenError
-  招待受付API --> 管理者 : 400 Bad Request\napplication/problem+json\ntype: .../invalid-token
-end
-
-ユースケース -> ユースケース : checkAlreadyUsed(token)
-
-alt E3: トークンが使用済み
-  ユースケース --> 招待受付API : InvalidTokenError
-  招待受付API --> 管理者 : 400 Bad Request\napplication/problem+json\ntype: .../invalid-token
-end
-
-ユースケース -> ユースケース : checkExpiry(token)
-
-alt E4: 招待トークン有効期限切れ
-  ユースケース -> 招待トークンRepo : markAsExpired(token)
-  ユースケース --> 招待受付API : TokenExpiredError
-  招待受付API --> 管理者 : 400 Bad Request\napplication/problem+json\ntype: .../token-expired
-end
-
-ユースケース -> ユースケース : bcrypt hash(password)
-
-group トランザクション [ステップ7〜8]
-  ユースケース -> ユーザーRepo : create(user{ email: token.email,\nhashedPassword, status: verified,\nrole: token.role })
-  ユーザーRepo --> ユースケース : createdUser
-
-  ユースケース -> 招待トークンRepo : markAsUsed(token)
-  招待トークンRepo --> ユースケース : updated
-end
-
-alt E5: トランザクション失敗
-  note right #FFcccc : ERROR ログ\n{ ctx: "invitation_accept",\nmsg: "招待受付トランザクション失敗" }\nロールバック: 全操作を取消
-  ユースケース --> 招待受付API : InternalError
-  招待受付API --> 管理者 : 500 Internal Server Error\napplication/problem+json\ntype: .../internal-error
-end
-
-ユースケース --> 招待受付API : success
-招待受付API --> 管理者 : 200 OK
-
-@enduml
+```mermaid
+sequenceDiagram
+  actor 管理者 as 管理者 (招待済み)
+  participant 招待受付API as POST /auth/invitation/accept
+  participant ユースケース as InvitationAcceptUseCase
+  participant 招待トークンRepo as InvitationTokenRepository (DB)
+  participant ユーザーRepo as UserRepository (DB)
+  管理者->>招待受付API: POST /auth/invitation/accept<br/>{ token, password }
+  招待受付API->>ユースケース: accept(token, password)
+  ユースケース->>ユースケース: validatePassword(password)
+  alt E1: パスワード強度不足
+  ユースケース-->>招待受付API: ValidationError
+  招待受付API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  end
+  ユースケース->>招待トークンRepo: findByToken(token)
+  招待トークンRepo-->>ユースケース: result
+  alt E2: トークンが存在しない
+  ユースケース-->>招待受付API: InvalidTokenError
+  招待受付API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
+  end
+  ユースケース->>ユースケース: checkAlreadyUsed(token)
+  alt E3: トークンが使用済み
+  ユースケース-->>招待受付API: InvalidTokenError
+  招待受付API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
+  end
+  ユースケース->>ユースケース: checkExpiry(token)
+  alt E4: 招待トークン有効期限切れ
+  ユースケース->>招待トークンRepo: markAsExpired(token)
+  ユースケース-->>招待受付API: TokenExpiredError
+  招待受付API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../token-expired
+  end
+  ユースケース->>ユースケース: bcrypt hash(password)
+  critical トランザクション ステップ7〜8
+  ユースケース->>ユーザーRepo: create(user{ email: token.email,<br/>hashedPassword, status: verified,<br/>role: token.role })
+  ユーザーRepo-->>ユースケース: createdUser
+  ユースケース->>招待トークンRepo: markAsUsed(token)
+  招待トークンRepo-->>ユースケース: updated
+  end
+  alt E5: トランザクション失敗
+  Note right of ユースケース: ERROR ログ<br/>{ ctx: "invitation_accept",<br/>msg: "招待受付トランザクション失敗" }<br/>ロールバック: 全操作を取消
+  ユースケース-->>招待受付API: InternalError
+  招待受付API-->>管理者: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
+  end
+  ユースケース-->>招待受付API: success
+  招待受付API-->>管理者: 200 OK
 ```
 
 ---
