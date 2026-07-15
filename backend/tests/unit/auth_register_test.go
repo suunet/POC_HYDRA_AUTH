@@ -3,11 +3,14 @@ package unit
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,14 +27,16 @@ import (
 type fakeUserRepository struct {
 	existing map[string]bool
 	created  []domain.Registration
+	tokens   []domain.EmailConfirmationToken
 }
 
 func (f *fakeUserRepository) EmailExists(ctx context.Context, email string) (bool, error) {
 	return f.existing[email], nil
 }
 
-func (f *fakeUserRepository) CreateUser(ctx context.Context, r domain.Registration) error {
+func (f *fakeUserRepository) CreateUser(ctx context.Context, r domain.Registration, token domain.EmailConfirmationToken) error {
 	f.created = append(f.created, r)
+	f.tokens = append(f.tokens, token)
 	return nil
 }
 
@@ -115,6 +120,33 @@ func TestUC002_Register_MultibytePassword_CountedInRunes(t *testing.T) {
 	rec := postRegister(t, newAuthTestEcho(t, repo), `{"email":"mb@example.com","password":"`+strings.Repeat("あ", 15)+`"}`)
 	assert.Equal(t, http.StatusCreated, rec.Code, "15文字（45バイト）はVAR-02を満たす")
 	assert.Len(t, repo.created, 1)
+}
+
+// UC-002: ステップ8 — メール確認トークン（INF-06）を生成・保存する。VAR-06=24時間有効・平文は保存せずハッシュのみ
+func TestUC002_Register_GeneratesEmailConfirmationToken(t *testing.T) {
+	repo := &fakeUserRepository{existing: map[string]bool{}}
+	before := time.Now().UTC()
+	rec := postRegister(t, newAuthTestEcho(t, repo), `{"email":"new@example.com","password":"secret-passw0rd!"}`)
+	after := time.Now().UTC()
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	require.Len(t, repo.tokens, 1)
+	token := repo.tokens[0]
+
+	assert.NotEmpty(t, token.TokenUUID)
+	assert.Len(t, token.Hash, 64, "sha256 hex digest must be 64 chars")
+	assert.True(t, token.ExpiresAt.After(before.Add(24*time.Hour).Add(-time.Minute)))
+	assert.True(t, token.ExpiresAt.Before(after.Add(24*time.Hour).Add(time.Minute)), "VAR-06: 有効期限は24時間後")
+}
+
+// UC-002: トークンのハッシュ化はSHA-256（Q-11: 平文非保存。生成した平文をハッシュ照合できることを確認）
+func TestUC002_EmailConfirmationToken_HashIsSHA256OfPlainToken(t *testing.T) {
+	plain, token, err := domain.NewEmailConfirmationToken()
+	require.NoError(t, err)
+
+	sum := sha256.Sum256([]byte(plain))
+	assert.Equal(t, hex.EncodeToString(sum[:]), token.Hash)
+	assert.NotEqual(t, plain, token.Hash, "平文とハッシュが同一であってはならない")
 }
 
 // UC-002: A1 — 登録済みメールアドレスでも201（列挙攻撃対策・登録処理は行わない）

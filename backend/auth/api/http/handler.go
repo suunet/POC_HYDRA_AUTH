@@ -20,7 +20,6 @@ func NewHandler(register *command.RegisterAccountHandler) *Handler {
 	return &Handler{register: register}
 }
 
-// RegisterAccount は SCR-01（登録API）の strict-server 実装（UC-002）
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
 	if req.Body == nil {
 		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
@@ -31,9 +30,9 @@ func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountReques
 	case err == nil:
 		return RegisterAccount201Response{}, nil
 	case errors.Is(err, domain.ErrInvalidEmail):
-		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "メールアドレスの形式が不正です") // E1
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "メールアドレスの形式が不正です")
 	case errors.Is(err, domain.ErrInvalidPassword):
-		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "パスワードは15〜64文字で指定してください") // E2
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "パスワードは15〜64文字で指定してください")
 	default:
 		return nil, err
 	}

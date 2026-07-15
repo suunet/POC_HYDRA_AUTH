@@ -11,7 +11,7 @@ import (
 
 const ContentTypeProblemJSON = "application/problem+json"
 
-// NOTE: VAR-15（RFC 9457 type URIベースドメイン）。
+// NOTE: RFC 9457 type のベースURI。POCのため仮置き
 const ProblemTypeBase = "https://example.com/probs/"
 
 type Problem struct {
@@ -20,7 +20,7 @@ type Problem struct {
 	Status           int    `json:"status"`
 	Detail           string `json:"detail,omitempty"`
 	Instance         string `json:"instance,omitempty"`
-	RetryAfter       *int   `json:"retry_after,omitempty"` // VAR-16/E4（レート制限。単位はQ-12で確定）
+	RetryAfter       *int   `json:"retry_after,omitempty"` // レート制限時の再試行可能秒数
 	RevocationReason string `json:"revocation_reason,omitempty"`
 }
 
@@ -63,10 +63,9 @@ func ProblemErrorHandler(err error, c echo.Context) {
 		if msg, ok := he.Message.(string); ok && msg != problem.Title {
 			problem.Detail = msg
 		}
-		// NOTE: リクエスト解釈段階（バインド・生成コードの形式検証）の400もE1/E2と同じ validation-error として整形する（NFR-06・独自判断はstructure.md §4）
+		// NOTE: バインド段階の400もvalidation-errorとして整形する（独自判断: structure.md §4）
 		if he.Code == http.StatusBadRequest {
 			problem.Type = ProblemTypeBase + "validation-error"
-			// NFR-08: ビジネス例外（入力不正）はWARNING
 			applog.FromContext(c.Request().Context()).WarnContext(c.Request().Context(), "リクエスト解釈エラー", "ctx", "http")
 		}
 	default:

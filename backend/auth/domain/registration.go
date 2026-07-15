@@ -1,34 +1,38 @@
 package domain
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"net/mail"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
 
-// STM-01（アカウント状態）の英語ID（states.md 状態図エイリアスが正本 — 指示書T-005 §4.1）
+// STM-01の英語ID（正本: states.md）
 const (
 	StatusMailUnverified = "mail_unverified"
 )
 
-// VAR-08（一般ユーザーロール）
 const RoleUser = "user"
 
 const (
-	emailMaxLength    = 254 // VAR-01
-	passwordMinLength = 15  // VAR-02（文字数=rune数）
-	passwordMaxLength = 64  // VAR-02（文字数=rune数）
-	passwordMaxBytes  = 72  // bcryptの入力上限。暫定でE2扱い（カタログ反映はQ-13で確定）
+	emailMaxLength    = 254
+	passwordMinLength = 15
+	passwordMaxLength = 64
+	passwordMaxBytes  = 72 // bcryptの入力上限（超過は最大文字数違反と同じ扱い）
 )
 
 var (
-	ErrInvalidEmail    = errors.New("invalid email format")    // E1（VAR-01違反）
-	ErrInvalidPassword = errors.New("invalid password length") // E2（VAR-02違反）
+	ErrInvalidEmail    = errors.New("invalid email format")
+	ErrInvalidPassword = errors.New("invalid password length")
 )
 
-// Registration は UC-002 で新規登録されるアカウント
+// Registration は新規登録されるアカウント
 type Registration struct {
 	UserUUID     uuid.UUID
 	Email        string
@@ -37,7 +41,7 @@ type Registration struct {
 	Role         string
 }
 
-// ValidateEmail は VAR-01（RFC5322準拠・最大254文字）を検証する
+// ValidateEmail はRFC5322準拠・最大254文字を検証する
 func ValidateEmail(email string) error {
 	if email == "" || len(email) > emailMaxLength {
 		return ErrInvalidEmail
@@ -49,7 +53,7 @@ func ValidateEmail(email string) error {
 	return nil
 }
 
-// ValidatePassword は VAR-02（最小15文字・最大64文字・Unicode許容）を検証する。文字数はrune数で数える
+// ValidatePassword は最小15文字・最大64文字（Unicode許容）を検証する。文字数はrune数で数える
 func ValidatePassword(password string) error {
 	runes := utf8.RuneCountInString(password)
 	if runes < passwordMinLength || runes > passwordMaxLength {
@@ -59,4 +63,32 @@ func ValidatePassword(password string) error {
 		return ErrInvalidPassword
 	}
 	return nil
+}
+
+const EmailConfirmationTokenTTL = 24 * time.Hour
+
+const tokenPlainBytes = 32 // 256bit・crypto/randで生成
+
+// EmailConfirmationToken はメール確認トークンの永続化表現。平文は保存せずハッシュ（SHA-256）のみ持つ
+type EmailConfirmationToken struct {
+	TokenUUID uuid.UUID
+	Hash      string
+	ExpiresAt time.Time
+}
+
+// NewEmailConfirmationToken は平文トークン（メール送信用）とその永続化表現を生成する
+func NewEmailConfirmationToken() (plain string, token EmailConfirmationToken, err error) {
+	b := make([]byte, tokenPlainBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", EmailConfirmationToken{}, err
+	}
+	plain = base64.RawURLEncoding.EncodeToString(b)
+
+	sum := sha256.Sum256([]byte(plain))
+	token = EmailConfirmationToken{
+		TokenUUID: uuid.New(),
+		Hash:      hex.EncodeToString(sum[:]),
+		ExpiresAt: time.Now().UTC().Add(EmailConfirmationTokenTTL),
+	}
+	return plain, token, nil
 }
