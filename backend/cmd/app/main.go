@@ -12,7 +12,7 @@ func main() {
 	logger := applog.New(os.Stdout, "app-service")
 	ctx := applog.ContextWithLogger(context.Background(), logger)
 
-	e, err := backend.Build(ctx, logger)
+	e, err := backend.BuildApp(ctx, logger)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to build service", "ctx", "bootstrap", "error", err)
 		os.Exit(1)

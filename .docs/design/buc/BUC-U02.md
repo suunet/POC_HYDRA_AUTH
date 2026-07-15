@@ -84,43 +84,31 @@ entity "UserRepository" as ユーザーRepo
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "ユーザー" as ユーザー
-participant "POST /auth/email-verify" as 確認API
-participant "EmailVerificationUseCase" as ユースケース
-participant "EmailConfirmTokenRepository\n(DB)" as 確認トークンRepo
-participant "UserRepository\n(DB)" as ユーザーRepo
-
-ユーザー -> 確認API : POST /auth/email-verify\n{ token }
-確認API -> ユースケース : verify(token)
-
-ユースケース -> 確認トークンRepo : findByToken(token)
-確認トークンRepo --> ユースケース : result
-
-alt トークンが存在しない・使用済み
-  ユースケース --> 確認API : InvalidTokenError
-  確認API --> ユーザー : 400 Bad Request\napplication/problem+json\ntype: .../invalid-token
-end
-
-ユースケース -> ユースケース : validateExpiry(token)
-
-alt トークンが有効期限切れ
-  ユースケース --> 確認API : TokenExpiredError
-  確認API --> ユーザー : 400 Bad Request\napplication/problem+json\ntype: .../token-expired
-end
-
-ユースケース -> 確認トークンRepo : markAsUsed(token)
-ユースケース -> ユーザーRepo : updateStatus(user{ status: "未認証" })
-ユーザーRepo --> ユースケース : ok
-
-ユースケース --> 確認API : success
-確認API --> ユーザー : 200 OK
-
-@enduml
+```mermaid
+sequenceDiagram
+  actor ユーザー as ユーザー
+  participant 確認API as POST /auth/email-verify
+  participant ユースケース as EmailVerificationUseCase
+  participant 確認トークンRepo as EmailConfirmTokenRepository (DB)
+  participant ユーザーRepo as UserRepository (DB)
+  ユーザー->>確認API: POST /auth/email-verify<br/>{ token }
+  確認API->>ユースケース: verify(token)
+  ユースケース->>確認トークンRepo: findByToken(token)
+  確認トークンRepo-->>ユースケース: result
+  alt トークンが存在しない・使用済み
+  ユースケース-->>確認API: InvalidTokenError
+  確認API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
+  end
+  ユースケース->>ユースケース: validateExpiry(token)
+  alt トークンが有効期限切れ
+  ユースケース-->>確認API: TokenExpiredError
+  確認API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../token-expired
+  end
+  ユースケース->>確認トークンRepo: markAsUsed(token)
+  ユースケース->>ユーザーRepo: updateStatus(user{ status: "未認証" })
+  ユーザーRepo-->>ユースケース: ok
+  ユースケース-->>確認API: success
+  確認API-->>ユーザー: 200 OK
 ```
 
 ---

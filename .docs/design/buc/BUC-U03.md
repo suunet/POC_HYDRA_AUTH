@@ -110,58 +110,44 @@ end note
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "ユーザー" as ユーザー
-participant "POST /auth/email-verify/resend" as 再送信API
-participant "EmailConfirmTokenResendUseCase" as ユースケース
-participant "UserRepository\n(DB)" as ユーザーRepo
-participant "EmailConfirmTokenRepository\n(DB)" as 確認トークンRepo
-participant "Redis" as Redis
-participant "メールサーバー" as メールサーバー
-
-ユーザー -> 再送信API : POST /auth/email-verify/resend\n{ email }
-再送信API -> ユースケース : resend(email)
-
-ユースケース -> ユーザーRepo : findByEmail(email)
-ユーザーRepo --> ユースケース : user
-
-alt 未登録 または メール確認済み（列挙攻撃対策）
-  note right of ユースケース : メール送信を行わず\n成功扱いで返す
-  ユースケース --> 再送信API : success
-  再送信API --> ユーザー : 200 OK
-end
-
-ユースケース -> Redis : getRateLimitRecord(email)
-Redis --> ユースケース : record
-
-alt レートリミット超過（TTL 5分以内）
-  ユースケース --> 再送信API : RateLimitExceededError
-  再送信API --> ユーザー : 429 Too Many Requests\napplication/problem+json\ntype: .../rate-limit-exceeded
-end
-
-ユースケース -> 確認トークンRepo : invalidateExisting(email)
-ユースケース -> 確認トークンRepo : save(emailConfirmToken{ expires_at: +24h })
-確認トークンRepo --> ユースケース : token
-
-ユースケース -> メールサーバー : sendConfirmEmail(token)
-
-alt メール送信失敗
-  メールサーバー --> ユースケース : error
-  ユースケース -> 確認トークンRepo : rollback()\n（新トークン保存・既存トークン無効化を含むトランザクション全体）
-  ユースケース --> 再送信API : MailDeliveryError
-  note right : { ctx: "email_confirm_token_resend", msg: "メール送信失敗", lvl: "ERROR" }
-  再送信API --> ユーザー : 503 Service Unavailable\napplication/problem+json\ntype: .../mail-delivery-error
-end
-
-ユースケース -> Redis : setRateLimitRecord(email, TTL: 5min)
-ユースケース --> 再送信API : success
-再送信API --> ユーザー : 200 OK
-
-@enduml
+```mermaid
+sequenceDiagram
+  actor ユーザー as ユーザー
+  participant 再送信API as POST /auth/email-verify/resend
+  participant ユースケース as EmailConfirmTokenResendUseCase
+  participant ユーザーRepo as UserRepository (DB)
+  participant 確認トークンRepo as EmailConfirmTokenRepository (DB)
+  participant Redis as Redis
+  participant メールサーバー as メールサーバー
+  ユーザー->>再送信API: POST /auth/email-verify/resend<br/>{ email }
+  再送信API->>ユースケース: resend(email)
+  ユースケース->>ユーザーRepo: findByEmail(email)
+  ユーザーRepo-->>ユースケース: user
+  alt 未登録 または メール確認済み（列挙攻撃対策）
+  Note right of ユースケース: メール送信を行わず<br/>成功扱いで返す
+  ユースケース-->>再送信API: success
+  再送信API-->>ユーザー: 200 OK
+  end
+  ユースケース->>Redis: getRateLimitRecord(email)
+  Redis-->>ユースケース: record
+  alt レートリミット超過（TTL 5分以内）
+  ユースケース-->>再送信API: RateLimitExceededError
+  再送信API-->>ユーザー: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
+  end
+  ユースケース->>確認トークンRepo: invalidateExisting(email)
+  ユースケース->>確認トークンRepo: save(emailConfirmToken{ expires_at: +24h })
+  確認トークンRepo-->>ユースケース: token
+  ユースケース->>メールサーバー: sendConfirmEmail(token)
+  alt メール送信失敗
+  メールサーバー-->>ユースケース: error
+  ユースケース->>確認トークンRepo: rollback()<br/>（新トークン保存・既存トークン無効化を含むトランザクション全体）
+  ユースケース-->>再送信API: MailDeliveryError
+  Note right of 再送信API: { ctx: "email_confirm_token_resend", msg: "メール送信失敗", lvl: "ERROR" }
+  再送信API-->>ユーザー: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error
+  end
+  ユースケース->>Redis: setRateLimitRecord(email, TTL: 5min)
+  ユースケース-->>再送信API: success
+  再送信API-->>ユーザー: 200 OK
 ```
 
 ---

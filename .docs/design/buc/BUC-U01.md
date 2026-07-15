@@ -9,7 +9,7 @@
 | アクター | ACT-01（ユーザー） |
 | スコープ | Must |
 | 関連FR | FR-01, FR-02 |
-| 関連情報 | INF-01（ユーザー情報）, INF-06（メール確認トークン） |
+| 関連情報 | INF-01（ユーザー情報）, INF-06（メール確認トークン）, INF-13（登録送信記録） |
 | 関連条件 | CND-01（メールアドレスが未登録であること） |
 | 事後状態 | STM-01.メール未確認 |
 
@@ -24,18 +24,19 @@
 ### 基本フロー
 
 1. ユーザーはメールアドレスとパスワードを送信する
-2. システムはメールアドレスの形式（RFC5322準拠、最大254文字）を検証する
-3. システムはパスワード強度（最小15文字、最大64文字、全ASCII文字・Unicode許容、文字種の混在強制なし）を検証する
-4. システムはメールアドレスの重複を確認する
-5. システムはパスワードをbcryptでハッシュ化する
-6. システムはユーザーを `メール未確認` 状態で登録し、`user` ロールを付与する
-7. システムはメール確認トークン（有効期限24時間、使い切り）を生成しDBに保存する
-8. システムはメール確認トークンをメールサーバー経由で送信する
-9. システムは201レスポンスを返す
+2. システムは登録送信記録（INF-13）を確認し、登録レートリミット（VAR-16: 同一メールアドレスにつき5分に1回）を超過していないことを判定する。**超過していない場合のみ記録を更新する**（固定ウィンドウ・超過時はTTLを延長しない）。判定・記録は**登録済み/未登録に関わらず一様に適用**する
+3. システムはメールアドレスの形式（RFC5322準拠、最大254文字）を検証する
+4. システムはパスワード強度（最小15文字、最大64文字、全ASCII文字・Unicode許容、文字種の混在強制なし）を検証する
+5. システムはメールアドレスの重複を確認する
+6. システムはパスワードをbcryptでハッシュ化する
+7. システムはユーザーを `メール未確認` 状態で登録し、`user` ロールを付与する
+8. システムはメール確認トークン（有効期限24時間、使い切り）を生成しDBに保存する
+9. システムはメール確認トークンをメールサーバー経由で送信する
+10. システムは201レスポンスを返す
 
 ### 代替フロー
 
-**A1. メールアドレスが登録済みの場合（ステップ4）**
+**A1. メールアドレスが登録済みの場合（ステップ5）**
 
 - a. システムはユーザー列挙攻撃対策のため登録処理を行わず、メール送信も行わない
 - b. システムは201レスポンスを返す（未登録の場合と区別しない）
@@ -44,23 +45,30 @@
 
 > 全ログにはNFR-09の必須フィールド（`ts`・`lvl`・`svc`・`ctx`・`trace_id`/`span_id`・`req_id`・`msg`）を含めること。以下の例示は差分フィールド（`ctx`・`msg`・`lvl`）のみを記載する。
 
-**E1. メールアドレス形式バリデーションエラー（ステップ2）**
+**E1. メールアドレス形式バリデーションエラー（ステップ3）**
 
 - a. システムは処理を中断する
 - b. システムは400 (Bad Request)、`application/problem+json`、`type: https://example.com/probs/validation-error` を返す
 - c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "user_registration", msg: "メールアドレス形式不正", lvl: "WARNING" }`。NFR-08）
 
-**E2. パスワード強度バリデーションエラー（ステップ3）**
+**E2. パスワード強度バリデーションエラー（ステップ4）**
 
 - a. システムは処理を中断する
 - b. システムは400 (Bad Request)、`application/problem+json`、`type: https://example.com/probs/validation-error` を返す
 - c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "user_registration", msg: "パスワード強度不足", lvl: "WARNING" }`。NFR-08）
 
-**E3. メール送信失敗（ステップ8）**
+**E3. メール送信失敗（ステップ9）**
 
 - a. システムはユーザー登録およびトークン保存をロールバックする
 - b. システムは503 (Service Unavailable)、`application/problem+json`、`type: https://example.com/probs/mail-delivery-error` を返す
 - c. ERRORレベルでログを出力する（`{ ctx: "user_registration", msg: "メール送信失敗", lvl: "ERROR" }`。`user_id` は登録前のため含めない。メールアドレスはログに含めない）
+
+**E4. 登録レートリミット超過（ステップ2・VAR-16）**
+
+- a. システムは処理を中断する
+- b. システムは429 (Too Many Requests)、`application/problem+json`、`type: https://example.com/probs/rate-limit-exceeded`、`retry_after` フィールドを含めて返す
+- c. **登録済み/未登録に関わらず同一挙動とする**（A1の列挙攻撃対策を429の挙動差で迂回させない）
+- d. 監査ログ対象外。ビジネス例外としてWARNINGログを出力する（`{ ctx: "user_registration", msg: "登録レートリミット超過", lvl: "WARNING" }`。NFR-08）
 
 ---
 
@@ -75,6 +83,7 @@ actor "ユーザー" as ユーザー
 
 boundary "POST /auth/register" as 登録API
 control "UserRegistrationUseCase" as ユースケース
+control "RateLimitService" as レート制限
 control "PasswordHashService" as ハッシュ化
 control "TokenGenerationService" as トークン生成
 entity "UserRepository" as ユーザーRepo
@@ -84,6 +93,8 @@ boundary "メールサーバー" as メールサーバー
 ユーザー --> 登録API : email, password
 
 登録API --> ユースケース : register(email, password)
+
+ユースケース --> レート制限 : INF-13（登録送信記録・EXT-02 Redis）を確認・判定（VAR-16・一様適用）
 
 ユースケース --> ユースケース : validateEmail(email)
 ユースケース --> ユースケース : validatePassword(password)
@@ -110,64 +121,53 @@ end note
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "ユーザー" as ユーザー
-participant "POST /auth/register" as 登録API
-participant "UserRegistrationUseCase" as ユースケース
-participant "UserRepository\n(DB)" as ユーザーRepo
-participant "EmailConfirmTokenRepository\n(DB)" as 確認トークンRepo
-participant "メールサーバー" as メールサーバー
-
-ユーザー -> 登録API : POST /auth/register\n{ email, password }
-登録API -> ユースケース : register(email, password)
-
-ユースケース -> ユースケース : validateEmail(email)
-
-alt メールアドレス形式バリデーション失敗
-  ユースケース --> 登録API : ValidationError
-  登録API --> ユーザー : 400 Bad Request\napplication/problem+json\ntype: .../validation-error
-end
-
-ユースケース -> ユースケース : validatePassword(password)
-
-alt パスワード強度バリデーション失敗
-  ユースケース --> 登録API : ValidationError
-  登録API --> ユーザー : 400 Bad Request\napplication/problem+json\ntype: .../validation-error
-end
-
-ユースケース -> ユーザーRepo : findByEmail(email)
-ユーザーRepo --> ユースケース : result
-
-alt メールアドレス未登録
-  ユースケース -> ユースケース : bcrypt hash(password)
-  ユースケース -> ユーザーRepo : save(user{ status: email_unverified, role: user })
-  ユーザーRepo --> ユースケース : savedUser
-
-  ユースケース -> 確認トークンRepo : save(emailConfirmToken{ expires_at: +24h })
-  確認トークンRepo --> ユースケース : token
-
-  ユースケース -> メールサーバー : sendConfirmEmail(token)
-
-  alt メール送信失敗
-    メールサーバー --> ユースケース : error
-    ユースケース -> ユーザーRepo : rollback()
-    ユースケース --> 登録API : MailDeliveryError
-    note right : ERROR ログ出力\n{ ctx: "user_registration", msg: "メール送信失敗", lvl: "ERROR" }
-    登録API --> ユーザー : 503 Service Unavailable\napplication/problem+json\ntype: .../mail-delivery-error
+```mermaid
+sequenceDiagram
+  actor ユーザー as ユーザー
+  participant 登録API as POST /auth/register
+  participant ユースケース as UserRegistrationUseCase
+  participant Rate as INF-13 登録送信記録（EXT-02 Redis）
+  participant ユーザーRepo as UserRepository (DB)
+  participant 確認トークンRepo as EmailConfirmTokenRepository (DB)
+  participant メールサーバー as メールサーバー
+  ユーザー->>登録API: POST /auth/register<br/>{ email, password }
+  登録API->>ユースケース: register(email, password)
+  ユースケース->>Rate: レート確認・判定（VAR-16・一様適用。超過していない場合のみ記録更新）
+  alt レートリミット超過（E4）
+  ユースケース-->>登録API: RateLimitError
+  登録API-->>ユーザー: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded (retry_after)
   end
-
-else メールアドレス登録済み（列挙攻撃対策）
-  note right of ユースケース : 登録処理・メール送信を行わず\n成功扱いで返す
-end
-
-ユースケース --> 登録API : success
-登録API --> ユーザー : 201 Created
-
-@enduml
+  ユースケース->>ユースケース: validateEmail(email)
+  alt メールアドレス形式バリデーション失敗
+  ユースケース-->>登録API: ValidationError
+  登録API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  end
+  ユースケース->>ユースケース: validatePassword(password)
+  alt パスワード強度バリデーション失敗
+  ユースケース-->>登録API: ValidationError
+  登録API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  end
+  ユースケース->>ユーザーRepo: findByEmail(email)
+  ユーザーRepo-->>ユースケース: result
+  alt メールアドレス未登録
+  ユースケース->>ユースケース: bcrypt hash(password)
+  ユースケース->>ユーザーRepo: save(user{ status: email_unverified, role: user })
+  ユーザーRepo-->>ユースケース: savedUser
+  ユースケース->>確認トークンRepo: save(emailConfirmToken{ expires_at: +24h })
+  確認トークンRepo-->>ユースケース: token
+  ユースケース->>メールサーバー: sendConfirmEmail(token)
+  alt メール送信失敗
+  メールサーバー-->>ユースケース: error
+  ユースケース->>ユーザーRepo: rollback()
+  ユースケース-->>登録API: MailDeliveryError
+  Note right of 登録API: ERROR ログ出力<br/>{ ctx: "user_registration", msg: "メール送信失敗", lvl: "ERROR" }
+  登録API-->>ユーザー: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error
+  end
+  else メールアドレス登録済み（列挙攻撃対策）
+  Note right of ユースケース: 登録処理・メール送信を行わず<br/>成功扱いで返す
+  end
+  ユースケース-->>登録API: success
+  登録API-->>ユーザー: 201 Created
 ```
 
 ---

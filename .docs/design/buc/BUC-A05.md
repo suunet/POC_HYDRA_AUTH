@@ -92,48 +92,34 @@ entity "UserRepository" as ユーザーRepo
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "管理者\n(super_admin)" as 管理者
-participant "POST /admin/accounts/\n:userId/reactivate" as 再有効化API
-participant "AccountReactivateUseCase" as ユースケース
-participant "UserRepository\n(DB)" as ユーザーRepo
-
-管理者 -> 再有効化API : POST /admin/accounts/:userId/reactivate\n[Authorization: Bearer <accessToken>]
-再有効化API -> ユースケース : reactivate(userId)
-
-ユースケース -> ユーザーRepo : findById(userId, excludeDeleted: true)
-ユーザーRepo --> ユースケース : result
-
-alt E1: ユーザーが存在しない
-  ユースケース --> 再有効化API : UserNotFoundError
-  再有効化API --> 管理者 : 404 Not Found\napplication/problem+json\ntype: .../user-not-found
-end
-
-ユースケース -> ユースケース : checkAdminRole(user)
-
-alt E2: 管理者ロール未保持
-  ユースケース --> 再有効化API : NotAdminAccountError
-  再有効化API --> 管理者 : 400 Bad Request\napplication/problem+json\ntype: .../not-admin-account
-end
-
-ユースケース -> ユースケース : checkDisabled(user)
-
-alt E3: 無効化されていない
-  ユースケース --> 再有効化API : AccountNotDisabledError
-  再有効化API --> 管理者 : 409 Conflict\napplication/problem+json\ntype: .../account-not-disabled
-end
-
-ユースケース -> ユーザーRepo : reactivate(userId)
-ユーザーRepo --> ユースケース : updated
-
-ユースケース --> 再有効化API : success
-再有効化API --> 管理者 : 200 OK
-
-@enduml
+```mermaid
+sequenceDiagram
+  actor 管理者 as 管理者 (super_admin)
+  participant 再有効化API as POST /admin/accounts/ :userId/reactivate
+  participant ユースケース as AccountReactivateUseCase
+  participant ユーザーRepo as UserRepository (DB)
+  管理者->>再有効化API: POST /admin/accounts/:userId/reactivate<br/>[Authorization: Bearer <accessToken>]
+  再有効化API->>ユースケース: reactivate(userId)
+  ユースケース->>ユーザーRepo: findById(userId, excludeDeleted: true)
+  ユーザーRepo-->>ユースケース: result
+  alt E1: ユーザーが存在しない
+  ユースケース-->>再有効化API: UserNotFoundError
+  再有効化API-->>管理者: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
+  end
+  ユースケース->>ユースケース: checkAdminRole(user)
+  alt E2: 管理者ロール未保持
+  ユースケース-->>再有効化API: NotAdminAccountError
+  再有効化API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../not-admin-account
+  end
+  ユースケース->>ユースケース: checkDisabled(user)
+  alt E3: 無効化されていない
+  ユースケース-->>再有効化API: AccountNotDisabledError
+  再有効化API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../account-not-disabled
+  end
+  ユースケース->>ユーザーRepo: reactivate(userId)
+  ユーザーRepo-->>ユースケース: updated
+  ユースケース-->>再有効化API: success
+  再有効化API-->>管理者: 200 OK
 ```
 
 ---

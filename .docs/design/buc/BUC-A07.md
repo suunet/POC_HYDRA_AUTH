@@ -121,79 +121,58 @@ entity "RefreshTokenRepository" as リフレッシュトークンRepo
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "管理者\n(super_admin)" as 管理者
-participant "PUT /admin/accounts/\n:userId/role" as ロール変更API
-participant "RoleChangeUseCase" as ユースケース
-participant "UserRepository\n(DB)" as ユーザーRepo
-participant "RefreshTokenRepository\n(DB)" as リフレッシュトークンRepo
-
-管理者 -> ロール変更API : PUT /admin/accounts/:userId/role\n{ newRole }\n[Authorization: Bearer <accessToken>]
-ロール変更API -> ユースケース : changeRole(operatorId, targetUserId, newRole)
-
-ユースケース -> ユーザーRepo : findById(targetUserId, excludeDeletedAndDisabled: true)
-ユーザーRepo --> ユースケース : result
-
-alt E1: ユーザーが存在しない
-  ユースケース --> ロール変更API : UserNotFoundError
-  ロール変更API --> 管理者 : 404 Not Found\napplication/problem+json\ntype: .../user-not-found
-end
-
-ユースケース -> ユースケース : validateRole(newRole)
-
-alt E2: 無効なロール指定
-  ユースケース --> ロール変更API : ValidationError
-  ロール変更API --> 管理者 : 400 Bad Request\napplication/problem+json\ntype: .../validation-error
-end
-
-ユースケース -> ユースケース : checkRoleChanged(user.role, newRole)
-
-alt E3: 現在のロールと同一
-  ユースケース --> ロール変更API : RoleUnchangedError
-  ロール変更API --> 管理者 : 409 Conflict\napplication/problem+json\ntype: .../role-unchanged
-end
-
-ユースケース -> ユースケース : checkSelfDemotion\n(operatorId, targetUserId, newRole)
-
-alt E4: super_admin の自己降格
-  ユースケース --> ロール変更API : SelfDemotionForbiddenError
-  ロール変更API --> 管理者 : 403 Forbidden\napplication/problem+json\ntype: .../self-demotion-forbidden
-end
-
-opt super_admin からの降格
-  ユースケース -> ユーザーRepo : countSuperAdmins()
-  ユーザーRepo --> ユースケース : count
-
-  alt E5: super_admin が1人のみ
-    ユースケース --> ロール変更API : LastSuperAdminError
-    ロール変更API --> 管理者 : 409 Conflict\napplication/problem+json\ntype: .../last-super-admin
+```mermaid
+sequenceDiagram
+  actor 管理者 as 管理者 (super_admin)
+  participant ロール変更API as PUT /admin/accounts/ :userId/role
+  participant ユースケース as RoleChangeUseCase
+  participant ユーザーRepo as UserRepository (DB)
+  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
+  管理者->>ロール変更API: PUT /admin/accounts/:userId/role<br/>{ newRole }<br/>[Authorization: Bearer <accessToken>]
+  ロール変更API->>ユースケース: changeRole(operatorId, targetUserId, newRole)
+  ユースケース->>ユーザーRepo: findById(targetUserId, excludeDeletedAndDisabled: true)
+  ユーザーRepo-->>ユースケース: result
+  alt E1: ユーザーが存在しない
+  ユースケース-->>ロール変更API: UserNotFoundError
+  ロール変更API-->>管理者: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
   end
-end
-
-group トランザクション [ステップ7〜8]
-  ユースケース -> ユーザーRepo : updateRole(targetUserId, newRole)
-  ユーザーRepo --> ユースケース : updated
-
-  ユースケース -> リフレッシュトークンRepo : revokeAllByUserId\n(targetUserId, reason: role_changed)
-  リフレッシュトークンRepo --> ユースケース : revokedCount
-end
-
-alt E6: トランザクション失敗
-  note right #FFcccc : ERROR ログ\n{ ctx: "role_change",\nmsg: "ロール変更トランザクション失敗" }\nロールバック: 全操作を取消
-  ユースケース --> ロール変更API : InternalError
-  ロール変更API --> 管理者 : 500 Internal Server Error\napplication/problem+json\ntype: .../internal-error
-end
-
-note right : INFO 監査ログ\n{ ctx: "role_change", msg: "ロール変更" }
-
-ユースケース --> ロール変更API : success
-ロール変更API --> 管理者 : 200 OK\n{ revocation_reason: role_changed }
-
-@enduml
+  ユースケース->>ユースケース: validateRole(newRole)
+  alt E2: 無効なロール指定
+  ユースケース-->>ロール変更API: ValidationError
+  ロール変更API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  end
+  ユースケース->>ユースケース: checkRoleChanged(user.role, newRole)
+  alt E3: 現在のロールと同一
+  ユースケース-->>ロール変更API: RoleUnchangedError
+  ロール変更API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../role-unchanged
+  end
+  ユースケース->>ユースケース: checkSelfDemotion<br/>(operatorId, targetUserId, newRole)
+  alt E4: super_admin の自己降格
+  ユースケース-->>ロール変更API: SelfDemotionForbiddenError
+  ロール変更API-->>管理者: 403 Forbidden<br/>application/problem+json<br/>type: .../self-demotion-forbidden
+  end
+  opt super_admin からの降格
+  ユースケース->>ユーザーRepo: countSuperAdmins()
+  ユーザーRepo-->>ユースケース: count
+  alt E5: super_admin が1人のみ
+  ユースケース-->>ロール変更API: LastSuperAdminError
+  ロール変更API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../last-super-admin
+  end
+  end
+  critical トランザクション ステップ7〜8
+  ユースケース->>ユーザーRepo: updateRole(targetUserId, newRole)
+  ユーザーRepo-->>ユースケース: updated
+  ユースケース->>リフレッシュトークンRepo: revokeAllByUserId<br/>(targetUserId, reason: role_changed)
+  リフレッシュトークンRepo-->>ユースケース: revokedCount
+  end
+  alt E6: トランザクション失敗
+  Note right of ユースケース: ERROR ログ<br/>{ ctx: "role_change",<br/>msg: "ロール変更トランザクション失敗" }<br/>ロールバック: 全操作を取消
+  ユースケース-->>ロール変更API: InternalError
+  ロール変更API-->>管理者: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
+  end
+  Note right of 管理者: INFO 監査ログ<br/>{ ctx: "role_change", msg: "ロール変更" }
+  ユースケース-->>ロール変更API: success
+  ロール変更API-->>管理者: 200 OK<br/>{ revocation_reason: role_changed }
 ```
 
 ---

@@ -31,8 +31,9 @@
 
 ## 図・ドキュメント内のコード
 
-- PlantUML: `as` エイリアスは日本語ラベル、コード識別子は英語
-- 図中の要素にはトレーサビリティIDを併記する（例: `usecase "UC-001 アカウントを登録する" as UC001`）
+- **シーケンス図・ER図は Mermaid**（`sequenceDiagram`・`erDiagram`）で書く。シーケンス図のエイリアスは `participant <英語ID> as <日本語ラベル>`。ER図はテーブル名・列名を英語（DB定義どおり）とし、カタログID（VAR-NN・STM-NN等）は列コメントに併記する
+- その他の図（ロバストネス図・状態遷移図等）は PlantUML: `as` エイリアスは日本語ラベル、コード識別子は英語
+- 図中の要素にはトレーサビリティIDを併記する（例: `participant API as SCR-01 登録API`・`usecase "UC-001 アカウントを登録する" as UC001`）
 
 ## テスト
 

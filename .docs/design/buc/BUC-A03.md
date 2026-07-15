@@ -84,43 +84,30 @@ entity "RefreshTokenRepository" as リフレッシュトークンRepo
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "管理者" as 管理者
-participant "POST /admin/tokens/revoke" as 失効API
-participant "TokenRevocationUseCase" as ユースケース
-participant "RefreshTokenRepository\n(DB)" as リフレッシュトークンRepo
-
-管理者 -> 失効API : POST /admin/tokens/revoke\n{ refreshTokenId }\n[Authorization: Bearer <accessToken>]
-失効API -> ユースケース : revoke(refreshTokenId)
-
-ユースケース -> リフレッシュトークンRepo : findById(refreshTokenId)
-リフレッシュトークンRepo --> ユースケース : result
-
-alt E1: トークンが存在しない
-  ユースケース --> 失効API : TokenNotFoundError
-  失効API --> 管理者 : 404 Not Found\napplication/problem+json\ntype: .../token-not-found
-end
-
-ユースケース -> ユースケース : checkTokenStatus(token)
-
-alt E2: 既に失効済み
-  ユースケース --> 失効API : TokenAlreadyRevokedError
-  失効API --> 管理者 : 409 Conflict\napplication/problem+json\ntype: .../token-already-revoked
-end
-
-ユースケース -> リフレッシュトークンRepo : revoke(token, reason: forced_revocation)
-リフレッシュトークンRepo --> ユースケース : updated
-
-note right : INFO 監査ログ\n{ ctx: "token_revocation", msg: "トークン強制失効" }
-
-ユースケース --> 失効API : success
-失効API --> 管理者 : 200 OK\n{ revocation_reason: forced_revocation }
-
-@enduml
+```mermaid
+sequenceDiagram
+  actor 管理者 as 管理者
+  participant 失効API as POST /admin/tokens/revoke
+  participant ユースケース as TokenRevocationUseCase
+  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
+  管理者->>失効API: POST /admin/tokens/revoke<br/>{ refreshTokenId }<br/>[Authorization: Bearer <accessToken>]
+  失効API->>ユースケース: revoke(refreshTokenId)
+  ユースケース->>リフレッシュトークンRepo: findById(refreshTokenId)
+  リフレッシュトークンRepo-->>ユースケース: result
+  alt E1: トークンが存在しない
+  ユースケース-->>失効API: TokenNotFoundError
+  失効API-->>管理者: 404 Not Found<br/>application/problem+json<br/>type: .../token-not-found
+  end
+  ユースケース->>ユースケース: checkTokenStatus(token)
+  alt E2: 既に失効済み
+  ユースケース-->>失効API: TokenAlreadyRevokedError
+  失効API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../token-already-revoked
+  end
+  ユースケース->>リフレッシュトークンRepo: revoke(token, reason: forced_revocation)
+  リフレッシュトークンRepo-->>ユースケース: updated
+  Note right of ユースケース: INFO 監査ログ<br/>{ ctx: "token_revocation", msg: "トークン強制失効" }
+  ユースケース-->>失効API: success
+  失効API-->>管理者: 200 OK<br/>{ revocation_reason: forced_revocation }
 ```
 
 ---

@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const LevelCritical = slog.Level(12)
+
 type ctxKey int
 
 const (
@@ -27,6 +29,9 @@ func New(w io.Writer, svc string) *slog.Logger {
 				}
 			case slog.LevelKey:
 				a.Key = "lvl"
+				if lv, ok := a.Value.Any().(slog.Level); ok && lv == LevelCritical {
+					a.Value = slog.StringValue("CRITICAL")
+				}
 			case slog.MessageKey:
 				a.Key = "msg"
 			}

@@ -6,6 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	"poc-app-hydra/backend/common"
 	applog "poc-app-hydra/backend/common/log"
 )
 
@@ -14,7 +15,19 @@ func NewEcho(logger *slog.Logger) *echo.Echo {
 	e.HideBanner = true
 	e.HidePort = true
 
-	e.Use(middleware.Recover())
+	e.HTTPErrorHandler = ProblemErrorHandler
+	e.Logger = common.NewEchoSlogAdapter(logger)
+
+	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
+		LogErrorFunc: func(c echo.Context, err error, stack []byte) error {
+
+			applog.FromContext(c.Request().Context()).Log(
+				c.Request().Context(), applog.LevelCritical,
+				"panic recovered", "ctx", "http", "error", err.Error(), "stack", string(stack),
+			)
+			return err
+		},
+	}))
 	e.Use(contextMiddleware(logger))
 
 	return e

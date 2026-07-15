@@ -62,21 +62,15 @@ control "HealthCheckUseCase" as ユースケース
 
 ## シーケンス図
 
-```plantuml
-@startuml
-skinparam sequenceArrowThickness 1.5
-skinparam backgroundColor White
-
-actor "クライアント" as クライアント
-participant "GET /health" as ヘルスチェックAPI
-participant "HealthCheckUseCase" as ユースケース
-
-クライアント -> ヘルスチェックAPI : GET /health
-ヘルスチェックAPI -> ユースケース : check()
-ユースケース --> ヘルスチェックAPI : ok
-ヘルスチェックAPI --> クライアント : 200 OK\n{ status: "ok" }
-
-@enduml
+```mermaid
+sequenceDiagram
+  actor クライアント as クライアント
+  participant ヘルスチェックAPI as GET /health
+  participant ユースケース as HealthCheckUseCase
+  クライアント->>ヘルスチェックAPI: GET /health
+  ヘルスチェックAPI->>ユースケース: check()
+  ユースケース-->>ヘルスチェックAPI: ok
+  ヘルスチェックAPI-->>クライアント: 200 OK<br/>{ status: "ok" }
 ```
 
 ---

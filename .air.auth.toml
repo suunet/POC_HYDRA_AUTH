@@ -1,0 +1,11 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/auth ./backend/cmd/auth"
+bin = "./tmp/auth"
+include_ext = ["go"]
+exclude_dir = ["tmp", ".docker", ".docs", ".git", ".claude"]
+
+[log]
+main_only = true
