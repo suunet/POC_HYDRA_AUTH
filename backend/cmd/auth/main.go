@@ -9,6 +9,9 @@ import (
 
 	"poc-app-hydra/backend"
 	"poc-app-hydra/backend/auth"
+	"poc-app-hydra/backend/auth/adapters/mail"
+	"poc-app-hydra/backend/auth/adapters/ratelimit"
+	"poc-app-hydra/backend/auth/domain"
 	"poc-app-hydra/backend/common"
 	applog "poc-app-hydra/backend/common/log"
 )
@@ -54,11 +57,13 @@ func main() {
 		smtpFrom = "no-reply@example.com"
 	}
 
+	limiter := ratelimit.NewRegistrationLimiter(redisClient, domain.RegistrationRateLimitWindow)
+	mailer := mail.NewSMTPMailer(fmt.Sprintf("%s:%s", smtpHost, smtpPort), smtpFrom)
+
 	e, err := backend.BuildAuth(ctx, logger, auth.Deps{
-		PgxDb:        pool,
-		Redis:        redisClient,
-		SMTPAddr:     fmt.Sprintf("%s:%s", smtpHost, smtpPort),
-		SMTPFromAddr: smtpFrom,
+		PgxDb:   pool,
+		Limiter: limiter,
+		Mailer:  mailer,
 	})
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to build service", "ctx", "bootstrap", "error", err)

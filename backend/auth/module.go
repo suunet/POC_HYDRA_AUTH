@@ -6,14 +6,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
-	"github.com/redis/go-redis/v9"
 
 	authdb "poc-app-hydra/backend/auth/adapters/db"
-	"poc-app-hydra/backend/auth/adapters/mail"
-	"poc-app-hydra/backend/auth/adapters/ratelimit"
 	apihttp "poc-app-hydra/backend/auth/api/http"
 	"poc-app-hydra/backend/auth/app/command"
-	"poc-app-hydra/backend/auth/domain"
 	"poc-app-hydra/backend/common"
 	"poc-app-hydra/backend/common/module/contracts"
 )
@@ -26,18 +22,17 @@ type Module struct {
 	handler *apihttp.Handler
 }
 
+// NOTE: Limiter/Mailer はインターフェースで受け取る（呼び出し側が実装を選ぶ）。
+// cmd/auth は実アダプタ（Redis/SMTP）、コンポーネントテストはMailerのみスタブに差し替える
 type Deps struct {
-	PgxDb        *pgxpool.Pool
-	Redis        *redis.Client
-	SMTPAddr     string
-	SMTPFromAddr string
+	PgxDb   *pgxpool.Pool
+	Limiter command.RateLimiter
+	Mailer  command.Mailer
 }
 
 func NewModule(deps Deps) *Module {
 	users := authdb.NewUserRepository(deps.PgxDb)
-	limiter := ratelimit.NewRegistrationLimiter(deps.Redis, domain.RegistrationRateLimitWindow)
-	mailer := mail.NewSMTPMailer(deps.SMTPAddr, deps.SMTPFromAddr)
-	register := command.NewRegisterAccountHandler(users, limiter, mailer)
+	register := command.NewRegisterAccountHandler(users, deps.Limiter, deps.Mailer)
 	return &Module{
 		pgxDb:   deps.PgxDb,
 		handler: apihttp.NewHandler(register),
