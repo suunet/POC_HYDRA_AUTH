@@ -20,7 +20,7 @@ func NewEcho(logger *slog.Logger) *echo.Echo {
 
 	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
 		LogErrorFunc: func(c echo.Context, err error, stack []byte) error {
-			// 未捕捉例外はCRITICALで記録する（NFR-09フィールドはcontextHandlerが付与）
+
 			applog.FromContext(c.Request().Context()).Log(
 				c.Request().Context(), applog.LevelCritical,
 				"panic recovered", "ctx", "http", "error", err.Error(), "stack", string(stack),

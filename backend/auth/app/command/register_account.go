@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -11,23 +12,47 @@ import (
 	applog "poc-app-hydra/backend/common/log"
 )
 
+var (
+	ErrRateLimited      = errors.New("registration rate limit exceeded")
+	ErrMailDeliveryFail = errors.New("could not send confirmation email")
+)
+
 type UserRepository interface {
 	EmailExists(ctx context.Context, email string) (bool, error)
-	// CreateUser は単一トランザクションで登録する（失敗時は全体をロールバック）
-	CreateUser(ctx context.Context, r domain.Registration, token domain.EmailConfirmationToken) error
+	// NOTE: 単一トランザクションで登録する。afterInsertはコミット前に呼ばれ、エラーを返すと登録・トークン保存ごとロールバックする
+	CreateUser(ctx context.Context, r domain.Registration, token domain.EmailConfirmationToken, afterInsert func(context.Context) error) error
+}
+
+type RateLimiter interface {
+	Allow(ctx context.Context, key string) (bool, error)
+}
+
+type Mailer interface {
+	SendConfirmationEmail(ctx context.Context, to, plainToken string) error
 }
 
 type RegisterAccountHandler struct {
-	users UserRepository
+	users   UserRepository
+	limiter RateLimiter
+	mailer  Mailer
 }
 
-func NewRegisterAccountHandler(users UserRepository) *RegisterAccountHandler {
-	return &RegisterAccountHandler{users: users}
+func NewRegisterAccountHandler(users UserRepository, limiter RateLimiter, mailer Mailer) *RegisterAccountHandler {
+	return &RegisterAccountHandler{users: users, limiter: limiter, mailer: mailer}
 }
 
 func (h *RegisterAccountHandler) Handle(ctx context.Context, email, password string) error {
 	logger := applog.FromContext(ctx).With("usecase", "UC-002", "ctx", "user_registration")
 	logger.InfoContext(ctx, "usecase started")
+
+	allowed, err := h.limiter.Allow(ctx, email)
+	if err != nil {
+		return fmt.Errorf("could not check rate limit: %w", err)
+	}
+	if !allowed {
+		logger.WarnContext(ctx, "登録レートリミット超過")
+		return ErrRateLimited
+	}
 
 	if err := domain.ValidateEmail(email); err != nil {
 		logger.WarnContext(ctx, "メールアドレス形式不正")
@@ -43,7 +68,6 @@ func (h *RegisterAccountHandler) Handle(ctx context.Context, email, password str
 		return fmt.Errorf("could not check email existence: %w", err)
 	}
 	if exists {
-		// 列挙攻撃対策のため登録処理を行わず成功扱いにする（201は呼び出し側が返す）
 		logger.InfoContext(ctx, "usecase finished")
 		return nil
 	}
@@ -61,16 +85,26 @@ func (h *RegisterAccountHandler) Handle(ctx context.Context, email, password str
 		Role:         domain.RoleUser,
 	}
 
-	_, token, err := domain.NewEmailConfirmationToken()
+	plainToken, token, err := domain.NewEmailConfirmationToken()
 	if err != nil {
 		return fmt.Errorf("could not generate confirmation token: %w", err)
 	}
 
-	if err := h.users.CreateUser(ctx, registration, token); err != nil {
+	err = h.users.CreateUser(ctx, registration, token, func(ctx context.Context) error {
+		if sendErr := h.mailer.SendConfirmationEmail(ctx, email, plainToken); sendErr != nil {
+			return fmt.Errorf("%w: %v", ErrMailDeliveryFail, sendErr)
+		}
+		return nil
+	})
+	if errors.Is(err, ErrMailDeliveryFail) {
+		// WARNING: メールアドレスを含みうるためエラー詳細はログに出さない
+		logger.ErrorContext(ctx, "メール送信失敗")
+		return ErrMailDeliveryFail
+	}
+	if err != nil {
 		return fmt.Errorf("could not create user: %w", err)
 	}
 
-	// TODO: T-005 — レート制限（VAR-16）・メール送信（EVT-01）・送信失敗時のロールバック（E3）を実装する
 	logger.InfoContext(ctx, "usecase finished")
 	return nil
 }

@@ -32,8 +32,8 @@ func (r *UserRepository) EmailExists(ctx context.Context, email string) (bool, e
 	return true, nil
 }
 
-// CreateUser はuser・role・tokenを単一トランザクションで登録する
-func (r *UserRepository) CreateUser(ctx context.Context, reg domain.Registration, token domain.EmailConfirmationToken) error {
+// NOTE: user・role・tokenを単一トランザクションで登録する。afterInsertはコミット前（トランザクション内）で呼ばれ、エラーを返すと全体をロールバックする
+func (r *UserRepository) CreateUser(ctx context.Context, reg domain.Registration, token domain.EmailConfirmationToken, afterInsert func(context.Context) error) error {
 	return common.UpdateInTx(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		q := dbmodels.New(tx)
 		if err := q.InsertUser(ctx, dbmodels.InsertUserParams{
@@ -50,11 +50,14 @@ func (r *UserRepository) CreateUser(ctx context.Context, reg domain.Registration
 		}); err != nil {
 			return err
 		}
-		return q.InsertEmailConfirmationToken(ctx, dbmodels.InsertEmailConfirmationTokenParams{
+		if err := q.InsertEmailConfirmationToken(ctx, dbmodels.InsertEmailConfirmationTokenParams{
 			TokenUuid: token.TokenUUID,
 			UserUuid:  reg.UserUUID,
 			TokenHash: token.Hash,
 			ExpiresAt: token.ExpiresAt,
-		})
+		}); err != nil {
+			return err
+		}
+		return afterInsert(ctx)
 	})
 }

@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 
+	"github.com/redis/go-redis/v9"
+
 	"poc-app-hydra/backend"
+	"poc-app-hydra/backend/auth"
 	"poc-app-hydra/backend/common"
 	applog "poc-app-hydra/backend/common/log"
 )
@@ -26,7 +30,36 @@ func main() {
 	}
 	defer pool.Close()
 
-	e, err := backend.BuildAuth(ctx, logger, pool)
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "redis:6379"
+	}
+	redisClient := redis.NewClient(&redis.Options{Addr: redisAddr})
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		logger.ErrorContext(ctx, "failed to connect redis", "ctx", "bootstrap", "error", err)
+		os.Exit(1)
+	}
+	defer func() { _ = redisClient.Close() }()
+
+	smtpHost := os.Getenv("SMTP_HOST")
+	if smtpHost == "" {
+		smtpHost = "mailpit"
+	}
+	smtpPort := os.Getenv("SMTP_PORT")
+	if smtpPort == "" {
+		smtpPort = "1025"
+	}
+	smtpFrom := os.Getenv("SMTP_FROM")
+	if smtpFrom == "" {
+		smtpFrom = "no-reply@example.com"
+	}
+
+	e, err := backend.BuildAuth(ctx, logger, auth.Deps{
+		PgxDb:        pool,
+		Redis:        redisClient,
+		SMTPAddr:     fmt.Sprintf("%s:%s", smtpHost, smtpPort),
+		SMTPFromAddr: smtpFrom,
+	})
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to build service", "ctx", "bootstrap", "error", err)
 		os.Exit(1)

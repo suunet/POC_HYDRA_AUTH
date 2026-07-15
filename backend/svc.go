@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 
 	"poc-app-hydra/backend/auth"
@@ -20,9 +19,9 @@ func BuildApp(ctx context.Context, logger *slog.Logger) (*echo.Echo, error) {
 	})
 }
 
-func BuildAuth(ctx context.Context, logger *slog.Logger, pgxDb *pgxpool.Pool) (*echo.Echo, error) {
+func BuildAuth(ctx context.Context, logger *slog.Logger, deps auth.Deps) (*echo.Echo, error) {
 	return build(ctx, logger, []module.Module{
-		auth.NewModule(pgxDb),
+		auth.NewModule(deps),
 	})
 }
 

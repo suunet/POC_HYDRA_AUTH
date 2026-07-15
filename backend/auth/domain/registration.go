@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// STM-01の英語ID（正本: states.md）
 const (
 	StatusMailUnverified = "mail_unverified"
 )
@@ -24,7 +23,7 @@ const (
 	emailMaxLength    = 254
 	passwordMinLength = 15
 	passwordMaxLength = 64
-	passwordMaxBytes  = 72 // bcryptの入力上限（超過は最大文字数違反と同じ扱い）
+	passwordMaxBytes  = 72 // NOTE: bcryptの入力上限（超過は最大文字数違反と同じ扱い）
 )
 
 var (
@@ -32,7 +31,6 @@ var (
 	ErrInvalidPassword = errors.New("invalid password length")
 )
 
-// Registration は新規登録されるアカウント
 type Registration struct {
 	UserUUID     uuid.UUID
 	Email        string
@@ -41,7 +39,6 @@ type Registration struct {
 	Role         string
 }
 
-// ValidateEmail はRFC5322準拠・最大254文字を検証する
 func ValidateEmail(email string) error {
 	if email == "" || len(email) > emailMaxLength {
 		return ErrInvalidEmail
@@ -53,7 +50,6 @@ func ValidateEmail(email string) error {
 	return nil
 }
 
-// ValidatePassword は最小15文字・最大64文字（Unicode許容）を検証する。文字数はrune数で数える
 func ValidatePassword(password string) error {
 	runes := utf8.RuneCountInString(password)
 	if runes < passwordMinLength || runes > passwordMaxLength {
@@ -67,16 +63,17 @@ func ValidatePassword(password string) error {
 
 const EmailConfirmationTokenTTL = 24 * time.Hour
 
-const tokenPlainBytes = 32 // 256bit・crypto/randで生成
+const RegistrationRateLimitWindow = 5 * time.Minute
 
-// EmailConfirmationToken はメール確認トークンの永続化表現。平文は保存せずハッシュ（SHA-256）のみ持つ
+const tokenPlainBytes = 32 // NOTE: 256bit・crypto/randで生成
+
+// NOTE: 平文は保存せずハッシュ（SHA-256）のみ持つ（漏洩対策）
 type EmailConfirmationToken struct {
 	TokenUUID uuid.UUID
 	Hash      string
 	ExpiresAt time.Time
 }
 
-// NewEmailConfirmationToken は平文トークン（メール送信用）とその永続化表現を生成する
 func NewEmailConfirmationToken() (plain string, token EmailConfirmationToken, err error) {
 	b := make([]byte, tokenPlainBytes)
 	if _, err := rand.Read(b); err != nil {

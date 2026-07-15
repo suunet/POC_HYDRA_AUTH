@@ -49,9 +49,17 @@ services:
     environment:
       AUTH_PORT: "8081"
       POSTGRES_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-app}?sslmode=disable
+      REDIS_ADDR: redis:6379
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_FROM: no-reply@example.com
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
 
   redis:
     image: redis:7-alpine
