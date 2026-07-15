@@ -23,11 +23,16 @@ func uniqueEmail(t *testing.T) string {
 func seedExistingUser(t *testing.T, ctx context.Context, email string) {
 	t.Helper()
 	q := dbmodels.New(pool)
+	userUUID := uuid.New()
 	require.NoError(t, q.InsertUser(ctx, dbmodels.InsertUserParams{
-		UserUuid:     uuid.New(),
+		UserUuid:     userUUID,
 		Email:        email,
 		PasswordHash: "$2a$10$dummydummydummydummydummydummydummydummydummydummydu",
 		Status:       "mail_unverified",
+	}))
+	require.NoError(t, q.InsertUserRole(ctx, dbmodels.InsertUserRoleParams{
+		UserUuid: userUUID,
+		Role:     "user",
 	}))
 }
 
