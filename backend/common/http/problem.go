@@ -63,6 +63,12 @@ func ProblemErrorHandler(err error, c echo.Context) {
 		if msg, ok := he.Message.(string); ok && msg != problem.Title {
 			problem.Detail = msg
 		}
+		// NOTE: リクエスト解釈段階（バインド・生成コードの形式検証）の400もE1/E2と同じ validation-error として整形する（NFR-06・独自判断はstructure.md §4）
+		if he.Code == http.StatusBadRequest {
+			problem.Type = ProblemTypeBase + "validation-error"
+			// NFR-08: ビジネス例外（入力不正）はWARNING
+			applog.FromContext(c.Request().Context()).WarnContext(c.Request().Context(), "リクエスト解釈エラー", "ctx", "http")
+		}
 	default:
 		applog.FromContext(c.Request().Context()).With("ctx", "http", "error", err).Error("handling http error")
 	}

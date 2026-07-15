@@ -7,7 +7,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 
+	authdb "poc-app-hydra/backend/auth/adapters/db"
 	apihttp "poc-app-hydra/backend/auth/api/http"
+	"poc-app-hydra/backend/auth/app/command"
 	"poc-app-hydra/backend/common"
 	"poc-app-hydra/backend/common/module/contracts"
 )
@@ -21,9 +23,11 @@ type Module struct {
 }
 
 func NewModule(pgxDb *pgxpool.Pool) *Module {
+	users := authdb.NewUserRepository(pgxDb)
+	register := command.NewRegisterAccountHandler(users)
 	return &Module{
 		pgxDb:   pgxDb,
-		handler: apihttp.NewHandler(),
+		handler: apihttp.NewHandler(register),
 	}
 }
 
