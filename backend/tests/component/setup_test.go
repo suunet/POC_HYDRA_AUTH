@@ -14,7 +14,6 @@ import (
 	"poc-app-hydra/backend/auth"
 	"poc-app-hydra/backend/auth/adapters/ratelimit"
 	authclient "poc-app-hydra/backend/auth/api/http/client"
-	"poc-app-hydra/backend/auth/domain"
 	"poc-app-hydra/backend/common"
 	applog "poc-app-hydra/backend/common/log"
 )
@@ -81,7 +80,7 @@ func TestMain(m *testing.M) {
 	defer func() { _ = redisClient.Close() }()
 
 	mailer = &stubMailer{}
-	limiter := ratelimit.NewRegistrationLimiter(redisClient, domain.RegistrationRateLimitWindow)
+	limiter := ratelimit.NewRegistrationLimiter(redisClient)
 
 	e, err := backend.BuildAuth(ctx, logger, auth.Deps{
 		PgxDb:   pool,

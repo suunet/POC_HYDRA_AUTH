@@ -11,7 +11,6 @@ import (
 	"poc-app-hydra/backend/auth"
 	"poc-app-hydra/backend/auth/adapters/mail"
 	"poc-app-hydra/backend/auth/adapters/ratelimit"
-	"poc-app-hydra/backend/auth/domain"
 	"poc-app-hydra/backend/common"
 	applog "poc-app-hydra/backend/common/log"
 )
@@ -57,7 +56,7 @@ func main() {
 		smtpFrom = "no-reply@example.com"
 	}
 
-	limiter := ratelimit.NewRegistrationLimiter(redisClient, domain.RegistrationRateLimitWindow)
+	limiter := ratelimit.NewRegistrationLimiter(redisClient)
 	mailer := mail.NewSMTPMailer(fmt.Sprintf("%s:%s", smtpHost, smtpPort), smtpFrom)
 
 	e, err := backend.BuildAuth(ctx, logger, auth.Deps{

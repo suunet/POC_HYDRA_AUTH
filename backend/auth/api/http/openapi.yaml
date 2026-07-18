@@ -31,7 +31,7 @@ paths:
                 title: Bad Request
                 status: 400
         '429':
-          description: 登録レートリミット超過（VAR-16・E4。登録済み/未登録に関わらず一様挙動）
+          description: 登録レートリミット超過（VAR-16・E4。登録済み/未登録に関わらず一様挙動。retry_afterはTTL残秒数）
           content:
             application/problem+json:
               schema:
@@ -40,7 +40,7 @@ paths:
                 type: https://example.com/probs/rate-limit-exceeded
                 title: Too Many Requests
                 status: 429
-                retry_after: 300
+                retry_after: 287
         '503':
           description: メール送信失敗（E3。登録・トークン保存はロールバック済み）
           content:

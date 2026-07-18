@@ -4,18 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
 	"poc-app-hydra/backend/auth/domain"
 	applog "poc-app-hydra/backend/common/log"
+	"poc-app-hydra/backend/common/ratelimit"
 )
 
 var (
 	ErrRateLimited      = errors.New("registration rate limit exceeded")
 	ErrMailDeliveryFail = errors.New("could not send confirmation email")
 )
+
+type RateLimitedError struct {
+	RetryAfter time.Duration // TTL 残（VAR-16）。retry_after（秒）への変換はハンドラが行う
+}
+
+func (e *RateLimitedError) Error() string { return ErrRateLimited.Error() }
+
+// NOTE: errors.Is(err, ErrRateLimited) の既存判定を維持するため sentinel へ Unwrap する。
+func (e *RateLimitedError) Unwrap() error { return ErrRateLimited }
 
 type UserRepository interface {
 	EmailExists(ctx context.Context, email string) (bool, error)
@@ -24,7 +35,7 @@ type UserRepository interface {
 }
 
 type RateLimiter interface {
-	Allow(ctx context.Context, key string) (bool, error)
+	Allow(ctx context.Context, key string) (ratelimit.Result, error)
 }
 
 type Mailer interface {
@@ -45,13 +56,13 @@ func (h *RegisterAccountHandler) Handle(ctx context.Context, email, password str
 	logger := applog.FromContext(ctx).With("usecase", "UC-002", "ctx", "user_registration")
 	logger.InfoContext(ctx, "usecase started")
 
-	allowed, err := h.limiter.Allow(ctx, email)
+	res, err := h.limiter.Allow(ctx, email)
 	if err != nil {
 		return fmt.Errorf("could not check rate limit: %w", err)
 	}
-	if !allowed {
+	if !res.Allowed {
 		logger.WarnContext(ctx, "登録レートリミット超過")
-		return ErrRateLimited
+		return &RateLimitedError{RetryAfter: res.RetryAfter}
 	}
 
 	if err := domain.ValidateEmail(email); err != nil {

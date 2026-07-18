@@ -22,6 +22,7 @@ import (
 	"poc-app-hydra/backend/auth/domain"
 	commonhttp "poc-app-hydra/backend/common/http"
 	applog "poc-app-hydra/backend/common/log"
+	"poc-app-hydra/backend/common/ratelimit"
 )
 
 // NOTE: afterInsert はDBトランザクション内で呼ばれるメール送信を模し、エラー時は登録を反映しない（ロールバック相当）
@@ -49,13 +50,17 @@ func (f *fakeUserRepository) CreateUser(ctx context.Context, r domain.Registrati
 }
 
 type fakeRateLimiter struct {
-	blocked map[string]bool
-	calls   []string
+	blocked    map[string]bool
+	retryAfter time.Duration
+	calls      []string
 }
 
-func (f *fakeRateLimiter) Allow(ctx context.Context, key string) (bool, error) {
+func (f *fakeRateLimiter) Allow(ctx context.Context, key string) (ratelimit.Result, error) {
 	f.calls = append(f.calls, key)
-	return !f.blocked[key], nil
+	if f.blocked[key] {
+		return ratelimit.NewResult(false, f.retryAfter, 0, time.Now().Add(f.retryAfter)), nil
+	}
+	return ratelimit.NewResult(true, 0, 0, time.Now()), nil
 }
 
 type fakeMailer struct {
@@ -214,6 +219,8 @@ func TestUC002_Register_RateLimited_Returns429ProblemJSON(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			d := newTestDeps()
 			d.limiter.blocked["limited@example.com"] = true
+			// 端数TTL: 切り上げ（Ceil）でないと42にならない（Floor/Round=41系を検出）
+			d.limiter.retryAfter = 41*time.Second + 200*time.Millisecond
 			d.repo.existing["limited@example.com"] = existing
 
 			rec := postRegister(t, newAuthTestEcho(t, d), `{"email":"limited@example.com","password":"secret-passw0rd!"}`)
@@ -222,6 +229,8 @@ func TestUC002_Register_RateLimited_Returns429ProblemJSON(t *testing.T) {
 			var p commonhttp.Problem
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
 			assert.Equal(t, commonhttp.ProblemTypeBase+"rate-limit-exceeded", p.Type)
+			require.NotNil(t, p.RetryAfter)
+			assert.Equal(t, 42, *p.RetryAfter, "retry_after はTTL残秒数（VAR-16・固定値でない）")
 			assert.Empty(t, d.repo.created)
 		})
 	}

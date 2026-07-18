@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -26,6 +27,7 @@ func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountReques
 	}
 
 	err := h.register.Handle(ctx, string(req.Body.Email), req.Body.Password)
+	var rateLimited *command.RateLimitedError
 	switch {
 	case err == nil:
 		return RegisterAccount201Response{}, nil
@@ -33,9 +35,10 @@ func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountReques
 		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "メールアドレスの形式が不正です")
 	case errors.Is(err, domain.ErrInvalidPassword):
 		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "パスワードは15〜64文字で指定してください")
-	case errors.Is(err, command.ErrRateLimited):
+	case errors.As(err, &rateLimited):
 		problem := commonhttp.NewProblemError(http.StatusTooManyRequests, "rate-limit-exceeded", "登録リクエストが多すぎます")
-		return nil, problem.WithRetryAfter(int(domain.RegistrationRateLimitWindow.Seconds()))
+		// NOTE: 秒への切り上げで早すぎる再試行を防ぐ（VAR-16）
+		return nil, problem.WithRetryAfter(int(math.Ceil(rateLimited.RetryAfter.Seconds())))
 	case errors.Is(err, command.ErrMailDeliveryFail):
 		return nil, commonhttp.NewProblemError(http.StatusServiceUnavailable, "mail-delivery-error", "確認メールの送信に失敗しました")
 	default:
