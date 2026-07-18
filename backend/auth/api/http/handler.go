@@ -46,6 +46,11 @@ func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountReques
 	}
 }
 
+// TODO(T-006): サイクル3のTDDでUC-003（メールアドレスを確認する）本体を実装する
+func (h *Handler) VerifyEmail(ctx context.Context, req VerifyEmailRequestObject) (VerifyEmailResponseObject, error) {
+	return nil, echo.NewHTTPError(http.StatusNotImplemented)
+}
+
 func Register(e *echo.Echo, h *Handler) {
 	RegisterHandlers(e, NewStrictHandler(h, nil))
 }

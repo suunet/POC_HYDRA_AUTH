@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/redis/go-redis/v9"
 
@@ -17,7 +19,10 @@ import (
 
 func main() {
 	logger := applog.New(os.Stdout, "auth-service")
-	ctx := applog.ContextWithLogger(context.Background(), logger)
+	// NOTE: SIGINT/SIGTERM を捕捉し ctx キャンセル→backend.Run の graceful shutdown へ（参照元 cmd/main.go と同一）
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	ctx = applog.ContextWithLogger(ctx, logger)
 
 	dsn := os.Getenv("POSTGRES_URL")
 	if dsn == "" {
@@ -75,7 +80,7 @@ func main() {
 	}
 
 	logger.InfoContext(ctx, "auth-service starting", "ctx", "bootstrap", "port", port)
-	if err := e.Start(":" + port); err != nil {
+	if err := backend.Run(ctx, logger, e, port); err != nil {
 		logger.ErrorContext(ctx, "server stopped", "ctx", "bootstrap", "error", err)
 		os.Exit(1)
 	}

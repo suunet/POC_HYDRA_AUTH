@@ -16,6 +16,12 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// EmailVerifyRequest defines model for EmailVerifyRequest.
+type EmailVerifyRequest struct {
+	// Token メール確認トークン（平文。INF-06はSHA-256ハッシュのみ保存し照合する）
+	Token string `json:"token"`
+}
+
 // Problem RFC 9457 Problem Details（NFR-06）。retry_after・revocation_reason は拡張フィールド
 type Problem struct {
 	Detail   *string `json:"detail,omitempty"`
@@ -41,6 +47,9 @@ type RegisterAccountRequest struct {
 	// Password VAR-02（最小15文字・最大64文字・文字種の混在強制なし）
 	Password string `json:"password"`
 }
+
+// VerifyEmailJSONRequestBody defines body for VerifyEmail for application/json ContentType.
+type VerifyEmailJSONRequestBody = EmailVerifyRequest
 
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
@@ -118,10 +127,39 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// VerifyEmailWithBody request with any body
+	VerifyEmailWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	VerifyEmail(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// RegisterAccountWithBody request with any body
 	RegisterAccountWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	RegisterAccount(ctx context.Context, body RegisterAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) VerifyEmailWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewVerifyEmailRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) VerifyEmail(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewVerifyEmailRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) RegisterAccountWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -146,6 +184,46 @@ func (c *Client) RegisterAccount(ctx context.Context, body RegisterAccountJSONRe
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewVerifyEmailRequest calls the generic VerifyEmail builder with application/json body
+func NewVerifyEmailRequest(server string, body VerifyEmailJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewVerifyEmailRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewVerifyEmailRequestWithBody generates requests for VerifyEmail with any type of body
+func NewVerifyEmailRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/auth/email-verify")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewRegisterAccountRequest calls the generic RegisterAccount builder with application/json body
@@ -231,10 +309,38 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// VerifyEmailWithBodyWithResponse request with any body
+	VerifyEmailWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error)
+
+	VerifyEmailWithResponse(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error)
+
 	// RegisterAccountWithBodyWithResponse request with any body
 	RegisterAccountWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterAccountResponse, error)
 
 	RegisterAccountWithResponse(ctx context.Context, body RegisterAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterAccountResponse, error)
+}
+
+type VerifyEmailResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	ApplicationproblemJSON400 *Problem
+	ApplicationproblemJSON429 *Problem
+}
+
+// Status returns HTTPResponse.Status
+func (r VerifyEmailResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r VerifyEmailResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type RegisterAccountResponse struct {
@@ -261,6 +367,23 @@ func (r RegisterAccountResponse) StatusCode() int {
 	return 0
 }
 
+// VerifyEmailWithBodyWithResponse request with arbitrary body returning *VerifyEmailResponse
+func (c *ClientWithResponses) VerifyEmailWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error) {
+	rsp, err := c.VerifyEmailWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseVerifyEmailResponse(rsp)
+}
+
+func (c *ClientWithResponses) VerifyEmailWithResponse(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error) {
+	rsp, err := c.VerifyEmail(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseVerifyEmailResponse(rsp)
+}
+
 // RegisterAccountWithBodyWithResponse request with arbitrary body returning *RegisterAccountResponse
 func (c *ClientWithResponses) RegisterAccountWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterAccountResponse, error) {
 	rsp, err := c.RegisterAccountWithBody(ctx, contentType, body, reqEditors...)
@@ -276,6 +399,39 @@ func (c *ClientWithResponses) RegisterAccountWithResponse(ctx context.Context, b
 		return nil, err
 	}
 	return ParseRegisterAccountResponse(rsp)
+}
+
+// ParseVerifyEmailResponse parses an HTTP response from a VerifyEmailWithResponse call
+func ParseVerifyEmailResponse(rsp *http.Response) (*VerifyEmailResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &VerifyEmailResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseRegisterAccountResponse parses an HTTP response from a RegisterAccountWithResponse call

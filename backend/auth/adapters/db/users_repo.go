@@ -13,15 +13,15 @@ import (
 )
 
 type UserRepository struct {
-	pool *pgxpool.Pool
+	db *pgxpool.Pool
 }
 
-func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
-	return &UserRepository{pool: pool}
+func NewUserRepository(db *pgxpool.Pool) *UserRepository {
+	return &UserRepository{db: db}
 }
 
 func (r *UserRepository) EmailExists(ctx context.Context, email string) (bool, error) {
-	q := dbmodels.New(r.pool)
+	q := dbmodels.New(r.db)
 	_, err := q.GetUserByEmail(ctx, email)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -34,7 +34,7 @@ func (r *UserRepository) EmailExists(ctx context.Context, email string) (bool, e
 
 // NOTE: user・role・tokenを単一トランザクションで登録する。afterInsertはコミット前（トランザクション内）で呼ばれ、エラーを返すと全体をロールバックする
 func (r *UserRepository) CreateUser(ctx context.Context, reg domain.Registration, token domain.EmailConfirmationToken, afterInsert func(context.Context) error) error {
-	return common.UpdateInTx(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
+	return common.UpdateInTx(ctx, r.db, func(ctx context.Context, tx pgx.Tx) error {
 		q := dbmodels.New(tx)
 		if err := q.InsertUser(ctx, dbmodels.InsertUserParams{
 			UserUuid:     reg.UserUUID,

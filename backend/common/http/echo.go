@@ -2,6 +2,7 @@ package http
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -18,6 +19,7 @@ func NewEcho(logger *slog.Logger) *echo.Echo {
 	e.HTTPErrorHandler = ProblemErrorHandler
 	e.Logger = common.NewEchoSlogAdapter(logger)
 
+	e.Use(middleware.ContextTimeout(10 * time.Second))
 	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
 		LogErrorFunc: func(c echo.Context, err error, stack []byte) error {
 
@@ -29,6 +31,7 @@ func NewEcho(logger *slog.Logger) *echo.Echo {
 		},
 	}))
 	e.Use(contextMiddleware(logger))
+	e.Use(requestLogMiddleware)
 
 	return e
 }
@@ -49,6 +52,8 @@ func contextMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 			ctx = applog.ContextWithTrace(ctx, applog.NewTraceID(), applog.NewSpanID())
 
 			c.SetRequest(req.WithContext(ctx))
+			// NOTE: クライアントがIDで問い合わせできるようレスポンスへ返す（参照元のエコーバックと同義）
+			c.Response().Header().Set("X-Request-Id", applog.RequestIDFromContext(ctx))
 			return next(c)
 		}
 	}

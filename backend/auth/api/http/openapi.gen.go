@@ -14,6 +14,12 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// EmailVerifyRequest defines model for EmailVerifyRequest.
+type EmailVerifyRequest struct {
+	// Token メール確認トークン（平文。INF-06はSHA-256ハッシュのみ保存し照合する）
+	Token string `json:"token"`
+}
+
 // Problem RFC 9457 Problem Details（NFR-06）。retry_after・revocation_reason は拡張フィールド
 type Problem struct {
 	Detail   *string `json:"detail,omitempty"`
@@ -40,11 +46,17 @@ type RegisterAccountRequest struct {
 	Password string `json:"password"`
 }
 
+// VerifyEmailJSONRequestBody defines body for VerifyEmail for application/json ContentType.
+type VerifyEmailJSONRequestBody = EmailVerifyRequest
+
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// メールアドレスを確認する
+	// (POST /auth/email-verify)
+	VerifyEmail(ctx echo.Context) error
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx echo.Context) error
@@ -53,6 +65,15 @@ type ServerInterface interface {
 // ServerInterfaceWrapper converts echo contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler ServerInterface
+}
+
+// VerifyEmail converts echo context to params.
+func (w *ServerInterfaceWrapper) VerifyEmail(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.VerifyEmail(ctx)
+	return err
 }
 
 // RegisterAccount converts echo context to params.
@@ -92,8 +113,51 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 		Handler: si,
 	}
 
+	router.POST(baseURL+"/auth/email-verify", wrapper.VerifyEmail)
 	router.POST(baseURL+"/auth/register", wrapper.RegisterAccount)
 
+}
+
+type VerifyEmailRequestObject struct {
+	Body *VerifyEmailJSONRequestBody
+}
+
+type VerifyEmailResponseObject interface {
+	VisitVerifyEmailResponse(w http.ResponseWriter) error
+}
+
+type VerifyEmail200Response struct {
+}
+
+func (response VerifyEmail200Response) VisitVerifyEmailResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type VerifyEmail400ApplicationProblemPlusJSONResponse Problem
+
+func (response VerifyEmail400ApplicationProblemPlusJSONResponse) VisitVerifyEmailResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type VerifyEmail429ResponseHeaders struct {
+	RetryAfter int
+}
+
+type VerifyEmail429ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers VerifyEmail429ResponseHeaders
+}
+
+func (response VerifyEmail429ApplicationProblemPlusJSONResponse) VisitVerifyEmailResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
 }
 
 type RegisterAccountRequestObject struct {
@@ -149,6 +213,9 @@ func (response RegisterAccount503ApplicationProblemPlusJSONResponse) VisitRegist
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// メールアドレスを確認する
+	// (POST /auth/email-verify)
+	VerifyEmail(ctx context.Context, request VerifyEmailRequestObject) (VerifyEmailResponseObject, error)
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx context.Context, request RegisterAccountRequestObject) (RegisterAccountResponseObject, error)
@@ -164,6 +231,35 @@ func NewStrictHandler(ssi StrictServerInterface, middlewares []StrictMiddlewareF
 type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
+}
+
+// VerifyEmail operation middleware
+func (sh *strictHandler) VerifyEmail(ctx echo.Context) error {
+	var request VerifyEmailRequestObject
+
+	var body VerifyEmailJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.VerifyEmail(ctx.Request().Context(), request.(VerifyEmailRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "VerifyEmail")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(VerifyEmailResponseObject); ok {
+		return validResponse.VisitVerifyEmailResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
 }
 
 // RegisterAccount operation middleware

@@ -28,12 +28,9 @@ INSERT INTO auth.user_roles (
 VALUES
 	($1, $2);
 
--- name: InsertEmailConfirmationToken :exec
-INSERT INTO auth.email_confirmation_tokens (
-	token_uuid,
-	user_uuid,
-	token_hash,
-	expires_at
-)
-VALUES
-	($1, $2, $3, $4);
+-- name: UpdateUserStatus :exec
+UPDATE auth.users
+SET status = $2,
+	updated_at = now()
+WHERE user_uuid = $1
+  AND deleted_at IS NULL;

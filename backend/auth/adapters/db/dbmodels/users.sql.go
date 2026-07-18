@@ -48,34 +48,6 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 	return i, err
 }
 
-const insertEmailConfirmationToken = `-- name: InsertEmailConfirmationToken :exec
-INSERT INTO auth.email_confirmation_tokens (
-	token_uuid,
-	user_uuid,
-	token_hash,
-	expires_at
-)
-VALUES
-	($1, $2, $3, $4)
-`
-
-type InsertEmailConfirmationTokenParams struct {
-	TokenUuid uuid.UUID
-	UserUuid  uuid.UUID
-	TokenHash string
-	ExpiresAt time.Time
-}
-
-func (q *Queries) InsertEmailConfirmationToken(ctx context.Context, arg InsertEmailConfirmationTokenParams) error {
-	_, err := q.db.Exec(ctx, insertEmailConfirmationToken,
-		arg.TokenUuid,
-		arg.UserUuid,
-		arg.TokenHash,
-		arg.ExpiresAt,
-	)
-	return err
-}
-
 const insertUser = `-- name: InsertUser :exec
 INSERT INTO auth.users (
 	user_uuid,
@@ -120,5 +92,23 @@ type InsertUserRoleParams struct {
 
 func (q *Queries) InsertUserRole(ctx context.Context, arg InsertUserRoleParams) error {
 	_, err := q.db.Exec(ctx, insertUserRole, arg.UserUuid, arg.Role)
+	return err
+}
+
+const updateUserStatus = `-- name: UpdateUserStatus :exec
+UPDATE auth.users
+SET status = $2,
+	updated_at = now()
+WHERE user_uuid = $1
+  AND deleted_at IS NULL
+`
+
+type UpdateUserStatusParams struct {
+	UserUuid uuid.UUID
+	Status   string
+}
+
+func (q *Queries) UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error {
+	_, err := q.db.Exec(ctx, updateUserStatus, arg.UserUuid, arg.Status)
 	return err
 }
