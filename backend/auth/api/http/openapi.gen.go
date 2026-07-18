@@ -121,13 +121,21 @@ func (response RegisterAccount400ApplicationProblemPlusJSONResponse) VisitRegist
 	return json.NewEncoder(w).Encode(response)
 }
 
-type RegisterAccount429ApplicationProblemPlusJSONResponse Problem
+type RegisterAccount429ResponseHeaders struct {
+	RetryAfter int
+}
+
+type RegisterAccount429ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers RegisterAccount429ResponseHeaders
+}
 
 func (response RegisterAccount429ApplicationProblemPlusJSONResponse) VisitRegisterAccountResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
 	w.WriteHeader(429)
 
-	return json.NewEncoder(w).Encode(response)
+	return json.NewEncoder(w).Encode(response.Body)
 }
 
 type RegisterAccount503ApplicationProblemPlusJSONResponse Problem

@@ -3,6 +3,7 @@ package http
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v4"
 
@@ -79,6 +80,9 @@ func ProblemErrorHandler(err error, c echo.Context) {
 
 	problem.Instance = c.Request().RequestURI
 
+	if problem.RetryAfter != nil {
+		c.Response().Header().Set(echo.HeaderRetryAfter, strconv.Itoa(*problem.RetryAfter))
+	}
 	c.Response().Header().Set(echo.HeaderContentType, ContentTypeProblemJSON)
 	if writeErr := c.JSON(problem.Status, problem); writeErr != nil {
 		applog.FromContext(c.Request().Context()).With("ctx", "http", "error", writeErr).Error("failed to send problem response")

@@ -32,6 +32,11 @@ paths:
                 status: 400
         '429':
           description: 登録レートリミット超過（VAR-16・E4。登録済み/未登録に関わらず一様挙動。retry_afterはTTL残秒数）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数（bodyのretry_afterと同値）
+              schema:
+                type: integer
           content:
             application/problem+json:
               schema:
