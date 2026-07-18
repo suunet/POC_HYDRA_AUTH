@@ -47,9 +47,10 @@ func (m *stubMailer) Sent() []sentMail {
 }
 
 var (
-	mailer *stubMailer
-	client *authclient.ClientWithResponses
-	pool   *pgxpool.Pool
+	mailer      *stubMailer
+	client      *authclient.ClientWithResponses
+	pool        *pgxpool.Pool
+	redisClient *redis.Client
 )
 
 func TestMain(m *testing.M) {
@@ -74,7 +75,7 @@ func TestMain(m *testing.M) {
 	if redisAddr == "" {
 		redisAddr = "redis:6379"
 	}
-	redisClient := redis.NewClient(&redis.Options{Addr: redisAddr})
+	redisClient = redis.NewClient(&redis.Options{Addr: redisAddr})
 	if err := redisClient.Ping(ctx).Err(); err != nil {
 		panic(err)
 	}
