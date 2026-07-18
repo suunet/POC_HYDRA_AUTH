@@ -1,5 +1,5 @@
 // Package ratelimit は横断のレート制限基盤。レート値・キー・fail-mode は呼び出し側が
-// 注入する（VAR-12〜16「同値でも独立した設定値として管理」）。
+// 注入する（VAR-12〜14・VAR-16「同値でも独立した設定値として管理」）。
 package ratelimit
 
 import (
