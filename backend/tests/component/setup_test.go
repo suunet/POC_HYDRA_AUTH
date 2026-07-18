@@ -20,8 +20,9 @@ import (
 
 // NOTE: DB・Redisは実インフラを使う一方、メール送信のみMailpitへの実送信を避けるためスタブに差し替える
 type stubMailer struct {
-	mu   sync.Mutex
-	sent []sentMail
+	mu        sync.Mutex
+	sent      []sentMail
+	sendError error
 }
 
 type sentMail struct {
@@ -32,8 +33,17 @@ type sentMail struct {
 func (m *stubMailer) SendConfirmationEmail(ctx context.Context, to, plainToken string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.sendError != nil {
+		return m.sendError
+	}
 	m.sent = append(m.sent, sentMail{To: to, Token: plainToken})
 	return nil
+}
+
+func (m *stubMailer) FailWith(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sendError = err
 }
 
 func (m *stubMailer) Sent() []sentMail {

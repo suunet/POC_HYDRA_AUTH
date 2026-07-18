@@ -2,6 +2,8 @@ package tests_test
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,4 +62,38 @@ func TestFixedWindowLimiterDoesNotExtendTTLOnExcess(t *testing.T) {
 	assert.Positive(t, second.RetryAfter)
 	assert.LessOrEqual(t, second.RetryAfter, 500*time.Millisecond,
 		"超過時にTTLをウィンドウ長へ延長していない（VAR-16）")
+}
+
+// UC-002 / VAR-16: 並行リクエストが原子判定（Lua 1往復）で上限をすり抜けない
+func TestFixedWindowLimiterConcurrentAllowsExactlyOnce(t *testing.T) {
+	ctx := context.Background()
+	prefix := "test:ratelimit:"
+	key := uuid.NewString()
+	limiter := ratelimit.NewFixedWindowLimiter(redisClient, prefix, 5*time.Second, ratelimit.PassthroughHasher{})
+	t.Cleanup(func() { redisClient.Del(ctx, prefix+key) })
+
+	const n = 20
+	var wg sync.WaitGroup
+	var allowed atomic.Int64
+	errs := make(chan error, n)
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := limiter.Allow(ctx, key)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if res.Allowed {
+				allowed.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	assert.EqualValues(t, 1, allowed.Load(), "同時20リクエストで許可はちょうど1回")
 }
