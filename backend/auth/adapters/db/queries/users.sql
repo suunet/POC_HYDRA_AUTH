@@ -28,9 +28,10 @@ INSERT INTO auth.user_roles (
 VALUES
 	($1, $2);
 
--- name: UpdateUserStatus :exec
+-- name: TransitionUserStatus :execrows
 UPDATE auth.users
 SET status = $2,
 	updated_at = now()
 WHERE user_uuid = $1
+  AND status = $3
   AND deleted_at IS NULL;

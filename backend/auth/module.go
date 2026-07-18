@@ -33,9 +33,10 @@ type Deps struct {
 func NewModule(deps Deps) *Module {
 	users := authdb.NewUserRepository(deps.PgxDb)
 	register := command.NewRegisterAccountHandler(users, deps.Limiter, deps.Mailer)
+	verify := command.NewVerifyEmailHandler(users)
 	return &Module{
 		pgxDb:   deps.PgxDb,
-		handler: apihttp.NewHandler(register),
+		handler: apihttp.NewHandler(register, verify),
 	}
 }
 

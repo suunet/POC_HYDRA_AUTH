@@ -95,20 +95,25 @@ func (q *Queries) InsertUserRole(ctx context.Context, arg InsertUserRoleParams) 
 	return err
 }
 
-const updateUserStatus = `-- name: UpdateUserStatus :exec
+const transitionUserStatus = `-- name: TransitionUserStatus :execrows
 UPDATE auth.users
 SET status = $2,
 	updated_at = now()
 WHERE user_uuid = $1
+  AND status = $3
   AND deleted_at IS NULL
 `
 
-type UpdateUserStatusParams struct {
+type TransitionUserStatusParams struct {
 	UserUuid uuid.UUID
 	Status   string
+	Status_2 string
 }
 
-func (q *Queries) UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error {
-	_, err := q.db.Exec(ctx, updateUserStatus, arg.UserUuid, arg.Status)
-	return err
+func (q *Queries) TransitionUserStatus(ctx context.Context, arg TransitionUserStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, transitionUserStatus, arg.UserUuid, arg.Status, arg.Status_2)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

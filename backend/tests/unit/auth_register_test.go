@@ -94,7 +94,7 @@ func newAuthTestEcho(t *testing.T, d *testDeps) http.Handler {
 	t.Helper()
 	logger := applog.New(&bytes.Buffer{}, "auth-service")
 	e := commonhttp.NewEcho(logger)
-	apihttp.Register(e, apihttp.NewHandler(command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer)))
+	apihttp.Register(e, apihttp.NewHandler(command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer), command.NewVerifyEmailHandler(&fakeTokenRepository{})))
 	return e
 }
 

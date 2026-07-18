@@ -15,10 +15,11 @@ import (
 
 type Handler struct {
 	register *command.RegisterAccountHandler
+	verify   *command.VerifyEmailHandler
 }
 
-func NewHandler(register *command.RegisterAccountHandler) *Handler {
-	return &Handler{register: register}
+func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler) *Handler {
+	return &Handler{register: register, verify: verify}
 }
 
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
@@ -46,9 +47,22 @@ func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountReques
 	}
 }
 
-// TODO(T-006): サイクル3のTDDでUC-003（メールアドレスを確認する）本体を実装する
 func (h *Handler) VerifyEmail(ctx context.Context, req VerifyEmailRequestObject) (VerifyEmailResponseObject, error) {
-	return nil, echo.NewHTTPError(http.StatusNotImplemented)
+	if req.Body == nil {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
+	}
+
+	err := h.verify.Handle(ctx, req.Body.Token)
+	switch {
+	case err == nil:
+		return VerifyEmail200Response{}, nil
+	case errors.Is(err, command.ErrInvalidToken):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "invalid-token", "メール確認トークンが無効です")
+	case errors.Is(err, command.ErrTokenExpired):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "token-expired", "メール確認トークンの有効期限が切れています")
+	default:
+		return nil, err
+	}
 }
 
 func Register(e *echo.Echo, h *Handler) {

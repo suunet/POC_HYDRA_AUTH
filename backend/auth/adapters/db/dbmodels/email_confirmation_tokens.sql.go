@@ -72,13 +72,17 @@ func (q *Queries) InsertEmailConfirmationToken(ctx context.Context, arg InsertEm
 	return err
 }
 
-const markEmailConfirmationTokenUsed = `-- name: MarkEmailConfirmationTokenUsed :exec
+const markEmailConfirmationTokenUsed = `-- name: MarkEmailConfirmationTokenUsed :execrows
 UPDATE auth.email_confirmation_tokens
 SET used_at = now()
 WHERE token_uuid = $1
+  AND used_at IS NULL
 `
 
-func (q *Queries) MarkEmailConfirmationTokenUsed(ctx context.Context, tokenUuid uuid.UUID) error {
-	_, err := q.db.Exec(ctx, markEmailConfirmationTokenUsed, tokenUuid)
-	return err
+func (q *Queries) MarkEmailConfirmationTokenUsed(ctx context.Context, tokenUuid uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, markEmailConfirmationTokenUsed, tokenUuid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

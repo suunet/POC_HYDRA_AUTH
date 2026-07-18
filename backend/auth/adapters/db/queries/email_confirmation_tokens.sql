@@ -18,7 +18,8 @@ SELECT
 FROM auth.email_confirmation_tokens
 WHERE token_hash = $1;
 
--- name: MarkEmailConfirmationTokenUsed :exec
+-- name: MarkEmailConfirmationTokenUsed :execrows
 UPDATE auth.email_confirmation_tokens
 SET used_at = now()
-WHERE token_uuid = $1;
+WHERE token_uuid = $1
+  AND used_at IS NULL;
