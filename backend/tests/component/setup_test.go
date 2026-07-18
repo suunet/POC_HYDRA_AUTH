@@ -19,8 +19,7 @@ import (
 	applog "poc-app-hydra/backend/common/log"
 )
 
-// stubMailer は command.Mailer を満たすテストダブル。DB・Redisは実インフラを使う一方、
-// メール送信はMailpitへの実送信を避けるためスタブに差し替える
+// NOTE: DB・Redisは実インフラを使う一方、メール送信のみMailpitへの実送信を避けるためスタブに差し替える
 type stubMailer struct {
 	mu   sync.Mutex
 	sent []sentMail

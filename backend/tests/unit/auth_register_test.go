@@ -24,8 +24,7 @@ import (
 	applog "poc-app-hydra/backend/common/log"
 )
 
-// fakeUserRepository は command.UserRepository の公開インターフェースを満たすテストダブル。
-// afterInsert はDBトランザクション内で呼ばれるメール送信を模し、エラー時は登録を反映しない（ロールバック相当）
+// NOTE: afterInsert はDBトランザクション内で呼ばれるメール送信を模し、エラー時は登録を反映しない（ロールバック相当）
 type fakeUserRepository struct {
 	existing    map[string]bool
 	created     []domain.Registration
@@ -49,7 +48,6 @@ func (f *fakeUserRepository) CreateUser(ctx context.Context, r domain.Registrati
 	return nil
 }
 
-// fakeRateLimiter は command.RateLimiter の公開インターフェースを満たすテストダブル
 type fakeRateLimiter struct {
 	blocked map[string]bool
 	calls   []string
@@ -60,7 +58,6 @@ func (f *fakeRateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 	return !f.blocked[key], nil
 }
 
-// fakeMailer は command.Mailer の公開インターフェースを満たすテストダブル
 type fakeMailer struct {
 	sent      []string
 	sendError error

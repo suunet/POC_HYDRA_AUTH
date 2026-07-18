@@ -65,7 +65,7 @@ func TestNFR09_RequestID_GeneratedWithPrefix(t *testing.T) {
 	assert.True(t, len(id) > 4 && id[:4] == "gen_", "generated req_id must have gen_ prefix, got %q", id)
 }
 
-// Q-6: OTel互換のID生成のみの薄い実装（trace=32hex, span=16hex）
+// NFR-09: trace_id/span_id はOTel互換のID生成のみの薄い実装（trace=32hex, span=16hex）
 func TestNFR09_TraceAndSpanID_OTelCompatibleFormat(t *testing.T) {
 	assert.Len(t, applog.NewTraceID(), 32, "trace_id must be OTel-compatible 32 hex chars")
 	assert.Len(t, applog.NewSpanID(), 16, "span_id must be OTel-compatible 16 hex chars")

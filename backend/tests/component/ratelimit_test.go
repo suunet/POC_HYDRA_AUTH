@@ -13,7 +13,6 @@ import (
 )
 
 // UC-002 / VAR-16: 固定ウィンドウレート制限を実Redisで検証する。
-// 1回目は許可、同一ウィンドウ内の2回目は超過で拒否し、retry_after は TTL 残秒数（PTTL 由来）。
 func TestFixedWindowLimiterAllowsThenBlocksWithinWindow(t *testing.T) {
 	ctx := context.Background()
 	prefix := "test:ratelimit:"

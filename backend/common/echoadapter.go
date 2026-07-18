@@ -67,7 +67,7 @@ func (e *EchoSlogAdapter) SetLevel(v log.Lvl) {
 }
 
 func (e *EchoSlogAdapter) SetHeader(h string) {
-	// slog doesn't support custom headers, ignore
+	// NOTE: slog にヘッダ概念はないため何もしない
 }
 
 func (e *EchoSlogAdapter) echoLevelToSlog(level log.Lvl) slog.Level {

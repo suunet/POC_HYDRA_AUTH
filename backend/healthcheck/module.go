@@ -23,7 +23,7 @@ func (m *Module) Init(ctx context.Context) error {
 }
 
 func (m *Module) RegisterContracts(c *contracts.Contracts) {
-	// 他コンテキストへ提供する契約なし
+	// NOTE: 他コンテキストへ提供する契約なし
 }
 
 func (m *Module) RegisterHttp(e *echo.Echo) {
