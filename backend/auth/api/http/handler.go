@@ -52,6 +52,11 @@ func (h *Handler) VerifyEmail(ctx context.Context, req VerifyEmailRequestObject)
 		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
 	}
 
+	// NOTE: openapiのminLength:1をバインダは検証しないため必須検査をここで行う（E4より前＝形式不正は評価順対象外）
+	if req.Body.Token == "" {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "トークンが必要です")
+	}
+
 	err := h.verify.Handle(ctx, req.Body.Token, commonhttp.ClientIPFromContext(ctx))
 	var verifyRateLimited *command.RateLimitedError
 	switch {

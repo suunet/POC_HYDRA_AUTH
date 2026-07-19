@@ -18,7 +18,8 @@ type Limiter interface {
 	Allow(ctx context.Context, key string) (Result, error)
 }
 
-// NOTE: 現時点の結線は素通しのみ。IP は個人データのため、メール確認（UC-003）で
+// NOTE: 登録（UC-002）は素通し（メールはDBに平文保存済みで秘匿実益が薄い）。
+// メール確認（UC-003）のIPキーはHMAC-SHA256で匿名化して結線済み（hasher.go・INF-14）。
 type KeyHasher interface {
 	Hash(key string) string
 }

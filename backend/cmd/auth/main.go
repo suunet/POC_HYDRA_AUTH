@@ -65,6 +65,8 @@ func main() {
 	hmacSecret := os.Getenv("RATELIMIT_HMAC_SECRET")
 	if hmacSecret == "" {
 		hmacSecret = "local-dev-secret"
+		// WARNING: 公知の開発用既定鍵。本番でこのログが出る構成は不可（INF-14の鍵秘匿が崩れる）
+		logger.WarnContext(ctx, "RATELIMIT_HMAC_SECRET未設定のため開発用既定鍵で起動します", "ctx", "bootstrap")
 	}
 	verifyLimiter := ratelimit.NewEmailVerifyLimiter(redisClient, []byte(hmacSecret))
 	mailer := mail.NewSMTPMailer(fmt.Sprintf("%s:%s", smtpHost, smtpPort), smtpFrom)

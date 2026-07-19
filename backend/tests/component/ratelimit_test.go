@@ -135,7 +135,7 @@ func TestCountingWindowLimiterAllowsUpToLimit(t *testing.T) {
 	assert.LessOrEqual(t, fourth.RetryAfter, 500*time.Millisecond)
 }
 
-// VAR-17 / HMAC: 同一キーは同一ハッシュ・保存キーに平文IPが現れない（Q-7=C）
+// VAR-17 / HMAC: 同一キーは同一ハッシュ・保存キーに平文IPが現れない（INF-14）
 func TestCountingWindowLimiterHMACKeyAnonymized(t *testing.T) {
 	ctx := context.Background()
 	prefix := "test:ratelimit:hmac:"
@@ -150,4 +150,23 @@ func TestCountingWindowLimiterHMACKeyAnonymized(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, keys, 1)
 	assert.NotContains(t, keys[0], "203.0.113.9", "平文IPを保存しない")
+}
+
+// NFR-08 / T-007申し送り#1: TTL無しキー（運用ミス）でretry_after=0の拒否とWARNING経路を通す
+func TestFixedWindowLimiterTTLLessKeyDeniesWithZeroRetryAfter(t *testing.T) {
+	ctx := context.Background()
+	prefix := "test:ratelimit:"
+	key := uuid.NewString()
+	limiter := ratelimit.NewFixedWindowLimiter(redisClient, prefix, 5*time.Second, ratelimit.PassthroughHasher{})
+	t.Cleanup(func() { redisClient.Del(ctx, prefix+key) })
+
+	first, err := limiter.Allow(ctx, key)
+	require.NoError(t, err)
+	require.True(t, first.Allowed)
+	require.NoError(t, redisClient.Persist(ctx, prefix+key).Err())
+
+	second, err := limiter.Allow(ctx, key)
+	require.NoError(t, err)
+	assert.False(t, second.Allowed)
+	assert.Zero(t, second.RetryAfter, "TTL異常時は残秒不明のため0（WARNINGログで可観測化）")
 }

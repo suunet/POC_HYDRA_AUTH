@@ -169,3 +169,15 @@ func TestUC003_Verify_RateLimited_Returns429_BeforeTokenLookup(t *testing.T) {
 	require.NotNil(t, p.RetryAfter)
 	assert.Equal(t, 42, *p.RetryAfter)
 }
+
+// UC-003: 形式不正（空token）はバインド段階相当のvalidation-error。E4（レート）を消費しない
+func TestUC003_Verify_EmptyToken_Returns400ValidationError_WithoutRateConsumption(t *testing.T) {
+	limiter := &fakeRateLimiter{blocked: map[string]bool{}}
+	repo := &fakeTokenRepository{found: false}
+
+	rec := postVerify(t, newVerifyTestEchoWithLimiter(t, repo, limiter), `{"token":""}`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, commonhttp.ProblemTypeBase+"validation-error", problemType(t, rec))
+	assert.Empty(t, limiter.calls, "形式不正はレートを消費しない")
+}

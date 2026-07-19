@@ -7,7 +7,7 @@ import (
 )
 
 // HMACSHA256Hasher はレートキーをHMAC-SHA256で匿名化する（IP等の個人データ用）。
-// NOTE: plain SHA-256はIPv4総当たりで逆引き可能なため秘密鍵付きHMACが必須（Q-7=C決定の実装）。
+// NOTE: plain SHA-256はIPv4総当たりで逆引き可能なため秘密鍵付きHMACが必須（INF-14の規定の実装）。
 type HMACSHA256Hasher struct {
 	secret []byte
 }
