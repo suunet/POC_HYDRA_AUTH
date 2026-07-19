@@ -24,16 +24,27 @@ type EmailConfirmationTokenRepository interface {
 }
 
 type VerifyEmailHandler struct {
-	tokens EmailConfirmationTokenRepository
+	tokens  EmailConfirmationTokenRepository
+	limiter RateLimiter
 }
 
-func NewVerifyEmailHandler(tokens EmailConfirmationTokenRepository) *VerifyEmailHandler {
-	return &VerifyEmailHandler{tokens: tokens}
+func NewVerifyEmailHandler(tokens EmailConfirmationTokenRepository, limiter RateLimiter) *VerifyEmailHandler {
+	return &VerifyEmailHandler{tokens: tokens, limiter: limiter}
 }
 
-func (h *VerifyEmailHandler) Handle(ctx context.Context, plainToken string) error {
+func (h *VerifyEmailHandler) Handle(ctx context.Context, plainToken, clientIP string) error {
 	logger := applog.FromContext(ctx).With("usecase", "UC-003", "ctx", "email_verification")
 	logger.InfoContext(ctx, "usecase started")
+
+	// NOTE: レート判定（E4）はトークン照合より先（UC-003 §4の評価順序）
+	res, err := h.limiter.Allow(ctx, clientIP)
+	if err != nil {
+		return fmt.Errorf("could not check rate limit: %w", err)
+	}
+	if !res.Allowed {
+		logger.WarnContext(ctx, "メール確認レートリミット超過")
+		return &RateLimitedError{RetryAfter: res.RetryAfter}
+	}
 
 	record, err := h.tokens.GetEmailConfirmationTokenByHash(ctx, domain.HashEmailConfirmationToken(plainToken))
 	if errors.Is(err, domain.ErrTokenNotFound) {

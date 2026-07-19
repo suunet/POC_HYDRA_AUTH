@@ -97,3 +97,57 @@ func TestFixedWindowLimiterConcurrentAllowsExactlyOnce(t *testing.T) {
 	}
 	assert.EqualValues(t, 1, allowed.Load(), "同時20リクエストで許可はちょうど1回")
 }
+
+// UC-003 / VAR-17: カウント型は上限まで許可し、超過でTTL残のretry_afterを返す（実Redis）
+func TestCountingWindowLimiterAllowsUpToLimit(t *testing.T) {
+	ctx := context.Background()
+	prefix := "test:ratelimit:counting:"
+	key := uuid.NewString()
+	limiter := ratelimit.NewCountingWindowLimiter(redisClient, prefix, 5*time.Second, 2, ratelimit.PassthroughHasher{})
+	t.Cleanup(func() { redisClient.Del(ctx, prefix+key) })
+
+	first, err := limiter.Allow(ctx, key)
+	require.NoError(t, err)
+	assert.True(t, first.Allowed)
+	assert.Equal(t, 1, first.Remaining)
+
+	second, err := limiter.Allow(ctx, key)
+	require.NoError(t, err)
+	assert.True(t, second.Allowed)
+	assert.Equal(t, 0, second.Remaining)
+
+	third, err := limiter.Allow(ctx, key)
+	require.NoError(t, err)
+	assert.False(t, third.Allowed, "上限2を超えた3回目は拒否")
+	assert.Positive(t, third.RetryAfter)
+	assert.LessOrEqual(t, third.RetryAfter, 5*time.Second)
+
+	// VAR-17: 超過時は記録を更新しない（カウント値が増えない）
+	stored, err := redisClient.Get(ctx, prefix+key).Result()
+	require.NoError(t, err)
+	assert.Equal(t, "2", stored, "超過リクエストでカウントを書き換えない")
+
+	// VAR-17: 超過時にTTLを延長しない
+	require.NoError(t, redisClient.PExpire(ctx, prefix+key, 500*time.Millisecond).Err())
+	fourth, err := limiter.Allow(ctx, key)
+	require.NoError(t, err)
+	assert.False(t, fourth.Allowed)
+	assert.LessOrEqual(t, fourth.RetryAfter, 500*time.Millisecond)
+}
+
+// VAR-17 / HMAC: 同一キーは同一ハッシュ・保存キーに平文IPが現れない（Q-7=C）
+func TestCountingWindowLimiterHMACKeyAnonymized(t *testing.T) {
+	ctx := context.Background()
+	prefix := "test:ratelimit:hmac:"
+	hasher := ratelimit.NewHMACSHA256Hasher([]byte("s3cret"))
+	limiter := ratelimit.NewCountingWindowLimiter(redisClient, prefix, 5*time.Second, 1, hasher)
+	t.Cleanup(func() { redisClient.Del(ctx, prefix+hasher.Hash("203.0.113.9")) })
+
+	_, err := limiter.Allow(ctx, "203.0.113.9")
+	require.NoError(t, err)
+
+	keys, err := redisClient.Keys(ctx, prefix+"*").Result()
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	assert.NotContains(t, keys[0], "203.0.113.9", "平文IPを保存しない")
+}

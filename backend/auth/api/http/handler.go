@@ -52,7 +52,8 @@ func (h *Handler) VerifyEmail(ctx context.Context, req VerifyEmailRequestObject)
 		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
 	}
 
-	err := h.verify.Handle(ctx, req.Body.Token)
+	err := h.verify.Handle(ctx, req.Body.Token, commonhttp.ClientIPFromContext(ctx))
+	var verifyRateLimited *command.RateLimitedError
 	switch {
 	case err == nil:
 		return VerifyEmail200Response{}, nil
@@ -60,6 +61,9 @@ func (h *Handler) VerifyEmail(ctx context.Context, req VerifyEmailRequestObject)
 		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "invalid-token", "メール確認トークンが無効です")
 	case errors.Is(err, command.ErrTokenExpired):
 		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "token-expired", "メール確認トークンの有効期限が切れています")
+	case errors.As(err, &verifyRateLimited):
+		problem := commonhttp.NewProblemError(http.StatusTooManyRequests, "rate-limit-exceeded", "メール確認リクエストが多すぎます")
+		return nil, problem.WithRetryAfter(int(math.Ceil(verifyRateLimited.RetryAfter.Seconds())))
 	default:
 		return nil, err
 	}

@@ -45,12 +45,16 @@ func (f *fakeTokenRepository) ConsumeEmailConfirmationToken(ctx context.Context,
 }
 
 func newVerifyTestEcho(t *testing.T, repo *fakeTokenRepository) http.Handler {
+	return newVerifyTestEchoWithLimiter(t, repo, &fakeRateLimiter{blocked: map[string]bool{}})
+}
+
+func newVerifyTestEchoWithLimiter(t *testing.T, repo *fakeTokenRepository, limiter *fakeRateLimiter) http.Handler {
 	t.Helper()
 	d := newTestDeps()
 	e := commonhttp.NewEcho(applog.New(&bytes.Buffer{}, "auth-service"))
 	apihttp.Register(e, apihttp.NewHandler(
 		command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer),
-		command.NewVerifyEmailHandler(repo),
+		command.NewVerifyEmailHandler(repo, limiter),
 	))
 	return e
 }
@@ -148,4 +152,20 @@ func TestUC003_Verify_ConsumeConflict_Returns400InvalidToken(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, commonhttp.ProblemTypeBase+"invalid-token", problemType(t, rec))
+}
+
+// UC-003: E4 — レート超過は429＋retry_after。トークン照合（E1a）より先に評価される
+func TestUC003_Verify_RateLimited_Returns429_BeforeTokenLookup(t *testing.T) {
+	// NOTE: httptestの既定RemoteAddr由来のIPをブロック。repoは不在応答＝順序が誤りなら400になる
+	limiter := &fakeRateLimiter{blocked: map[string]bool{"192.0.2.1": true}, retryAfter: 42 * time.Second}
+	repo := &fakeTokenRepository{found: false}
+
+	rec := postVerify(t, newVerifyTestEchoWithLimiter(t, repo, limiter), `{"token":"whatever"}`)
+
+	assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+	var p commonhttp.Problem
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
+	assert.Equal(t, commonhttp.ProblemTypeBase+"rate-limit-exceeded", p.Type)
+	require.NotNil(t, p.RetryAfter)
+	assert.Equal(t, 42, *p.RetryAfter)
 }

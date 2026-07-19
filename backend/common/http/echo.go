@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -50,6 +51,10 @@ func contextMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 			ctx = applog.ContextWithLogger(ctx, logger)
 			ctx = applog.ContextWithRequestID(ctx, reqID)
 			ctx = applog.ContextWithTrace(ctx, applog.NewTraceID(), applog.NewSpanID())
+			// NOTE: strict-serverハンドラはecho.Contextを受けないため、IP単位レート制限（VAR-17）用にctxへ載せる。
+			// WARNING: Echo既定のRealIPはX-Forwarded-Forを無条件信頼するためヘッダ偽装でIPを偽れる。
+			// 本番はIPExtractor（信頼プロキシ）またはエッジのレート制限で担保する（POCはアプリ層のみ）
+			ctx = context.WithValue(ctx, clientIPKey{}, c.RealIP())
 
 			c.SetRequest(req.WithContext(ctx))
 			// NOTE: クライアントがIDで問い合わせできるようレスポンスへ返す（参照元のエコーバックと同義）
@@ -57,4 +62,12 @@ func contextMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+type clientIPKey struct{}
+
+// NOTE: contextMiddleware未経由（想定外の経路）では空文字＝単一バケットに縮退する
+func ClientIPFromContext(ctx context.Context) string {
+	ip, _ := ctx.Value(clientIPKey{}).(string)
+	return ip
 }

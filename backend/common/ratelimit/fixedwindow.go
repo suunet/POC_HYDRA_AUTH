@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	applog "poc-app-hydra/backend/common/log"
 )
 
 // キー未在なら TTL 付きで作成して許可（1）、既在なら拒否（0）。いずれも PTTL を併せ返す。
@@ -48,6 +50,9 @@ func (l *FixedWindowLimiter) Allow(ctx context.Context, key string) (Result, err
 	created, _ := vals[0].(int64)
 	pttlMs, _ := vals[1].(int64)
 	if pttlMs < 0 {
+		// NOTE: TTL無しキー＝運用ミス。retry_after=0の429が永続し得るため可観測にする（T-007申し送り）
+		applog.FromContext(ctx).WarnContext(ctx, "レート制限キーのTTLが異常です",
+			"ctx", "ratelimit", "key", redisKey, "pttl_ms", pttlMs)
 		pttlMs = 0
 	}
 

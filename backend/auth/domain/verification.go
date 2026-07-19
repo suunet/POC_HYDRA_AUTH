@@ -11,6 +11,12 @@ import (
 
 const StatusInactive = "inactive" // STM-01.未認証（UC-003完了後）
 
+// VAR-17: メール確認レートリミット（IP単位・1分に10回）
+const (
+	EmailVerifyRateLimitWindow = time.Minute
+	EmailVerifyRateLimitMax    = int64(10)
+)
+
 var (
 	ErrTokenNotFound = errors.New("email confirmation token not found")
 	// NOTE: Tx内で使い切り更新が0行（並行消費・論理削除済みユーザー等）だった競合

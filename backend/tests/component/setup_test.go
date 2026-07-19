@@ -91,11 +91,13 @@ func TestMain(m *testing.M) {
 
 	mailer = &stubMailer{}
 	limiter := ratelimit.NewRegistrationLimiter(redisClient)
+	verifyLimiter := ratelimit.NewEmailVerifyLimiter(redisClient, []byte("component-test-secret"))
 
 	e, err := backend.BuildAuth(ctx, logger, auth.Deps{
-		PgxDb:   pool,
-		Limiter: limiter,
-		Mailer:  mailer,
+		PgxDb:         pool,
+		Limiter:       limiter,
+		VerifyLimiter: verifyLimiter,
+		Mailer:        mailer,
 	})
 	if err != nil {
 		panic(err)

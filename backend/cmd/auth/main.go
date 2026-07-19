@@ -62,12 +62,18 @@ func main() {
 	}
 
 	limiter := ratelimit.NewRegistrationLimiter(redisClient)
+	hmacSecret := os.Getenv("RATELIMIT_HMAC_SECRET")
+	if hmacSecret == "" {
+		hmacSecret = "local-dev-secret"
+	}
+	verifyLimiter := ratelimit.NewEmailVerifyLimiter(redisClient, []byte(hmacSecret))
 	mailer := mail.NewSMTPMailer(fmt.Sprintf("%s:%s", smtpHost, smtpPort), smtpFrom)
 
 	e, err := backend.BuildAuth(ctx, logger, auth.Deps{
-		PgxDb:   pool,
-		Limiter: limiter,
-		Mailer:  mailer,
+		PgxDb:         pool,
+		Limiter:       limiter,
+		VerifyLimiter: verifyLimiter,
+		Mailer:        mailer,
 	})
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to build service", "ctx", "bootstrap", "error", err)
