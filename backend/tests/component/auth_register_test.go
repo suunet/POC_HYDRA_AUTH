@@ -2,7 +2,9 @@ package tests_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -91,4 +93,51 @@ func TestUC002_Register_RealServer_EmailTooLong_Returns400(t *testing.T) {
 	assert.Equal(t, 400, resp.StatusCode())
 	require.NotNil(t, resp.ApplicationproblemJSON400)
 	assert.Contains(t, resp.ApplicationproblemJSON400.Type, "validation-error")
+}
+
+// UC-002: E4 — 同一メールの2連続POSTは429。retry_afterはTTL残秒数（VAR-16）でRetry-Afterヘッダにも出す
+func TestUC002_Register_RealServer_SecondPost_Returns429WithRetryAfter(t *testing.T) {
+	ctx := context.Background()
+	email := uniqueEmail(t)
+	body := authclient.RegisterAccountJSONRequestBody{
+		Email:    openapi_types.Email(email),
+		Password: "secret-passw0rd!",
+	}
+
+	first, err := client.RegisterAccountWithResponse(ctx, body)
+	require.NoError(t, err)
+	require.Equal(t, 201, first.StatusCode())
+
+	second, err := client.RegisterAccountWithResponse(ctx, body)
+	require.NoError(t, err)
+	require.Equal(t, 429, second.StatusCode())
+	p := second.ApplicationproblemJSON429
+	require.NotNil(t, p)
+	assert.Contains(t, p.Type, "rate-limit-exceeded")
+	require.NotNil(t, p.RetryAfter)
+	assert.Greater(t, *p.RetryAfter, 295, "直後の再POSTなのでウィンドウ5分の残がほぼ全部残る")
+	assert.LessOrEqual(t, *p.RetryAfter, 300, "固定値でなく実TTL残（300を超えない）")
+	assert.Equal(t, strconv.Itoa(*p.RetryAfter), second.HTTPResponse.Header.Get("Retry-After"))
+}
+
+// UC-002: E3 — メール送信失敗は503。実DBで登録・トークンがロールバックされている
+func TestUC002_Register_RealServer_MailFails_Returns503_RollsBack(t *testing.T) {
+	ctx := context.Background()
+	email := uniqueEmail(t)
+	mailer.FailWith(errors.New("smtp down"))
+	t.Cleanup(func() { mailer.FailWith(nil) })
+
+	resp, err := client.RegisterAccountWithResponse(ctx, authclient.RegisterAccountJSONRequestBody{
+		Email:    openapi_types.Email(email),
+		Password: "secret-passw0rd!",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 503, resp.StatusCode())
+	require.NotNil(t, resp.ApplicationproblemJSON503)
+	assert.Contains(t, resp.ApplicationproblemJSON503.Type, "mail-delivery-error")
+
+	var users int
+	require.NoError(t, pool.QueryRow(ctx,
+		"SELECT count(*) FROM auth.users WHERE email = $1", email).Scan(&users))
+	assert.Zero(t, users, "ユーザー行が不存在（論理削除でなくTXロールバック。トークン・ロール行はFKで不存在が保証される）")
 }

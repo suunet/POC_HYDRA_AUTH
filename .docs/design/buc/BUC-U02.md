@@ -9,7 +9,7 @@
 | アクター | ACT-01（ユーザー） |
 | スコープ | Must |
 | 関連FR | FR-03 |
-| 関連情報 | INF-01（ユーザー情報）, INF-06（メール確認トークン） |
+| 関連情報 | INF-01（ユーザー情報）, INF-06（メール確認トークン）, INF-14（メール確認試行記録） |
 | 関連条件 | CND-09（メール確認トークンが有効期限内であること） |
 | 事後状態 | STM-01.未認証 |
 
@@ -24,11 +24,12 @@
 ### 基本フロー
 
 1. ユーザーはメール確認トークンを送信する
-2. システムはトークンをDBで検索する
-3. システムはトークンの有効期限を検証する
-4. システムはトークンを使用済みに更新する（使い切り）
-5. システムはユーザーのステータスを `未認証` に更新する
-6. システムは200レスポンスを返す
+2. システムは送信元IP単位のレートリミットを検証・記録する（VAR-17）
+3. システムはトークンをDBで検索する
+4. システムはトークンの有効期限を検証する
+5. システムはトークンを使用済みに更新する（使い切り）
+6. システムはユーザーのステータスを `未認証` に更新する
+7. システムは200レスポンスを返す
 
 ### 代替フロー
 
@@ -38,17 +39,23 @@
 
 > 全ログにはNFR-09の必須フィールド（`ts`・`lvl`・`svc`・`ctx`・`trace_id`/`span_id`・`req_id`・`msg`）を含めること。以下の例示は差分フィールド（`ctx`・`msg`・`lvl`）のみを記載する。
 
-**E1. トークンが存在しない、または使用済みの場合（ステップ2）**
+**E1. トークンが存在しない、または使用済みの場合（ステップ3）**
 
 - a. システムは処理を中断する
 - b. システムは400 (Bad Request)、`application/problem+json`、`type: https://example.com/probs/invalid-token` を返す
 - c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "email_verification", msg: "無効なメール確認トークン", lvl: "WARNING" }`。NFR-08）
 
-**E2. トークンが有効期限切れの場合（ステップ3）**
+**E2. トークンが有効期限切れの場合（ステップ4）**
 
 - a. システムは処理を中断する
 - b. システムは400 (Bad Request)、`application/problem+json`、`type: https://example.com/probs/token-expired` を返す
 - c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "email_verification", msg: "メール確認トークン期限切れ", lvl: "WARNING" }`。NFR-08）
+
+**E4. レートリミット超過の場合（ステップ2・VAR-17）**
+
+- a. システムは処理を中断する
+- b. システムは429 (Too Many Requests)、`application/problem+json`、`type: https://example.com/probs/rate-limit-exceeded`、`retry_after`（秒・TTL残）および `Retry-After` ヘッダを返す
+- c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "email_verification", msg: "メール確認レートリミット超過", lvl: "WARNING" }`。NFR-08）
 
 ---
 
@@ -63,6 +70,7 @@ actor "ユーザー" as ユーザー
 
 boundary "POST /auth/email-verify" as 確認API
 control "EmailVerificationUseCase" as ユースケース
+control "EmailVerifyRateLimiter" as レート制限
 entity "EmailConfirmTokenRepository" as 確認トークンRepo
 entity "UserRepository" as ユーザーRepo
 
@@ -70,6 +78,7 @@ entity "UserRepository" as ユーザーRepo
 
 確認API --> ユースケース : verify(token)
 
+ユースケース --> レート制限 : checkAndRecord(ip)
 ユースケース --> 確認トークンRepo : findByToken(token)
 ユースケース --> ユースケース : validateExpiry(token)
 ユースケース --> 確認トークンRepo : markAsUsed(token)
@@ -89,10 +98,16 @@ sequenceDiagram
   actor ユーザー as ユーザー
   participant 確認API as POST /auth/email-verify
   participant ユースケース as EmailVerificationUseCase
+  participant レート制限 as EmailVerifyRateLimiter (Redis)
   participant 確認トークンRepo as EmailConfirmTokenRepository (DB)
   participant ユーザーRepo as UserRepository (DB)
   ユーザー->>確認API: POST /auth/email-verify<br/>{ token }
   確認API->>ユースケース: verify(token)
+  ユースケース->>レート制限: IPレート判定・記録（VAR-17）
+  alt レートリミット超過
+  ユースケース-->>確認API: RateLimitedError
+  確認API-->>ユーザー: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
+  end
   ユースケース->>確認トークンRepo: findByToken(token)
   確認トークンRepo-->>ユースケース: result
   alt トークンが存在しない・使用済み
@@ -126,3 +141,5 @@ sequenceDiagram
 | トークン不存在・使用済みの統一エラー | 両ケースとも `invalid-token` で返す | トークンの状態詳細を返すことで攻撃者がトークン有効性を探索できるリスクを排除する |
 | トークン有効期限 | 24時間 | VAR-06（メール確認トークン有効期限: 24時間）に定義 |
 | トークンの使い切り | 検証成功後に即使用済みフラグを立てる | 同一トークンの再利用によるアカウント状態の不正操作を防ぐ |
+| IP単位レートリミット | VAR-17（1分に10回・超過時は記録を更新しない・`retry_after`=TTL残秒） | 256bit乱数トークンの総当たりは非現実的だが、abuse・スキャン抑止の多層防御としてIP単位で制限する。キーのIPはHMAC-SHA256＋サーバ秘密鍵でハッシュ化（INF-14・個人データ配慮） |
+| 例外フロー番号 | レートリミット超過は E4（E3は欠番） | UC-002/UC-003と例外番号のスロットを揃える（E4=レートリミット超過）。grepでの横断突合を優先 |

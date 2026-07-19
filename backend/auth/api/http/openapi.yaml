@@ -31,7 +31,12 @@ paths:
                 title: Bad Request
                 status: 400
         '429':
-          description: 登録レートリミット超過（VAR-16・E4。登録済み/未登録に関わらず一様挙動）
+          description: 登録レートリミット超過（VAR-16・E4。登録済み/未登録に関わらず一様挙動。retry_afterはTTL残秒数）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数（bodyのretry_afterと同値）
+              schema:
+                type: integer
           content:
             application/problem+json:
               schema:
@@ -40,7 +45,7 @@ paths:
                 type: https://example.com/probs/rate-limit-exceeded
                 title: Too Many Requests
                 status: 429
-                retry_after: 300
+                retry_after: 287
         '503':
           description: メール送信失敗（E3。登録・トークン保存はロールバック済み）
           content:
@@ -51,6 +56,47 @@ paths:
                 type: https://example.com/probs/mail-delivery-error
                 title: Service Unavailable
                 status: 503
+  /auth/email-verify:
+    post:
+      summary: メールアドレスを確認する
+      operationId: verifyEmail
+      tags:
+        - commands
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailVerifyRequest'
+      responses:
+        '200':
+          description: メールアドレスを確認した（UC-003・STM-01 mail_unverified→inactive・トークンは使い切り）
+        '400':
+          description: 無効・使用済みトークン（E1a/E1b=invalid-token・状態を区別しない）または期限切れ（E2=token-expired・CND-09不成立）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/invalid-token
+                title: Bad Request
+                status: 400
+        '429':
+          description: メール確認レートリミット超過（VAR-17・E4。IP単位・retry_afterはTTL残秒数）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数（bodyのretry_afterと同値）
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/rate-limit-exceeded
+                title: Too Many Requests
+                status: 429
+                retry_after: 42
 components:
   schemas:
     RegisterAccountRequest:
@@ -69,6 +115,15 @@ components:
           minLength: 15
           maxLength: 64
           description: VAR-02（最小15文字・最大64文字・文字種の混在強制なし）
+    EmailVerifyRequest:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: メール確認トークン（平文。INF-06はSHA-256ハッシュのみ保存し照合する）
     Problem:
       type: object
       description: RFC 9457 Problem Details（NFR-06）。retry_after・revocation_reason は拡張フィールド

@@ -14,16 +14,15 @@ import (
 	"poc-app-hydra/backend/auth"
 	"poc-app-hydra/backend/auth/adapters/ratelimit"
 	authclient "poc-app-hydra/backend/auth/api/http/client"
-	"poc-app-hydra/backend/auth/domain"
 	"poc-app-hydra/backend/common"
 	applog "poc-app-hydra/backend/common/log"
 )
 
-// stubMailer は command.Mailer を満たすテストダブル。DB・Redisは実インフラを使う一方、
-// メール送信はMailpitへの実送信を避けるためスタブに差し替える
+// NOTE: DB・Redisは実インフラを使う一方、メール送信のみMailpitへの実送信を避けるためスタブに差し替える
 type stubMailer struct {
-	mu   sync.Mutex
-	sent []sentMail
+	mu        sync.Mutex
+	sent      []sentMail
+	sendError error
 }
 
 type sentMail struct {
@@ -34,8 +33,17 @@ type sentMail struct {
 func (m *stubMailer) SendConfirmationEmail(ctx context.Context, to, plainToken string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.sendError != nil {
+		return m.sendError
+	}
 	m.sent = append(m.sent, sentMail{To: to, Token: plainToken})
 	return nil
+}
+
+func (m *stubMailer) FailWith(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sendError = err
 }
 
 func (m *stubMailer) Sent() []sentMail {
@@ -47,9 +55,10 @@ func (m *stubMailer) Sent() []sentMail {
 }
 
 var (
-	mailer *stubMailer
-	client *authclient.ClientWithResponses
-	pool   *pgxpool.Pool
+	mailer      *stubMailer
+	client      *authclient.ClientWithResponses
+	pool        *pgxpool.Pool
+	redisClient *redis.Client
 )
 
 func TestMain(m *testing.M) {
@@ -74,19 +83,21 @@ func TestMain(m *testing.M) {
 	if redisAddr == "" {
 		redisAddr = "redis:6379"
 	}
-	redisClient := redis.NewClient(&redis.Options{Addr: redisAddr})
+	redisClient = redis.NewClient(&redis.Options{Addr: redisAddr})
 	if err := redisClient.Ping(ctx).Err(); err != nil {
 		panic(err)
 	}
 	defer func() { _ = redisClient.Close() }()
 
 	mailer = &stubMailer{}
-	limiter := ratelimit.NewRegistrationLimiter(redisClient, domain.RegistrationRateLimitWindow)
+	limiter := ratelimit.NewRegistrationLimiter(redisClient)
+	verifyLimiter := ratelimit.NewEmailVerifyLimiter(redisClient, []byte("component-test-secret"))
 
 	e, err := backend.BuildAuth(ctx, logger, auth.Deps{
-		PgxDb:   pool,
-		Limiter: limiter,
-		Mailer:  mailer,
+		PgxDb:         pool,
+		Limiter:       limiter,
+		VerifyLimiter: verifyLimiter,
+		Mailer:        mailer,
 	})
 	if err != nil {
 		panic(err)

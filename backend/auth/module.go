@@ -25,17 +25,19 @@ type Module struct {
 // NOTE: Limiter/Mailer はインターフェースで受け取る（呼び出し側が実装を選ぶ）。
 // cmd/auth は実アダプタ（Redis/SMTP）、コンポーネントテストはMailerのみスタブに差し替える
 type Deps struct {
-	PgxDb   *pgxpool.Pool
-	Limiter command.RateLimiter
-	Mailer  command.Mailer
+	PgxDb         *pgxpool.Pool
+	Limiter       command.RateLimiter
+	VerifyLimiter command.RateLimiter
+	Mailer        command.Mailer
 }
 
 func NewModule(deps Deps) *Module {
 	users := authdb.NewUserRepository(deps.PgxDb)
 	register := command.NewRegisterAccountHandler(users, deps.Limiter, deps.Mailer)
+	verify := command.NewVerifyEmailHandler(users, deps.VerifyLimiter)
 	return &Module{
 		pgxDb:   deps.PgxDb,
-		handler: apihttp.NewHandler(register),
+		handler: apihttp.NewHandler(register, verify),
 	}
 }
 
