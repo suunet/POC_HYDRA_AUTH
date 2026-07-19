@@ -74,6 +74,11 @@ func (h *Handler) VerifyEmail(ctx context.Context, req VerifyEmailRequestObject)
 	}
 }
 
+// TODO: サイクル3のTDDでUC-004（メール確認トークンを再送する）本体を実装する（T-008）
+func (h *Handler) ResendEmailVerification(ctx context.Context, req ResendEmailVerificationRequestObject) (ResendEmailVerificationResponseObject, error) {
+	return nil, echo.NewHTTPError(http.StatusNotImplemented)
+}
+
 func Register(e *echo.Echo, h *Handler) {
 	RegisterHandlers(e, NewStrictHandler(h, nil))
 }
