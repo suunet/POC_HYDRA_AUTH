@@ -9,7 +9,7 @@ import (
 	"poc-app-hydra/backend/common/ratelimit"
 )
 
-// UC-002 / VAR-16: レート制限基盤（T-007）。登録の平文メールキーは素通しで扱う（Q-7=C）。
+// UC-002 / VAR-16: レート制限基盤（T-007）。登録の平文メールキーは素通しで扱う（INF-14と対で、登録メールキーは平文運用）。
 func TestRateLimitPassthroughHasherReturnsKeyUnchanged(t *testing.T) {
 	var hasher ratelimit.KeyHasher = ratelimit.PassthroughHasher{}
 
