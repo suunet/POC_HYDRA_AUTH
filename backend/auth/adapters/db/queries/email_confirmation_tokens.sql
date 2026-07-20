@@ -23,3 +23,9 @@ UPDATE auth.email_confirmation_tokens
 SET used_at = now()
 WHERE token_uuid = $1
   AND used_at IS NULL;
+
+-- name: InvalidateActiveEmailConfirmationTokensByUser :execrows
+UPDATE auth.email_confirmation_tokens
+SET used_at = now()
+WHERE user_uuid = $1
+  AND used_at IS NULL;

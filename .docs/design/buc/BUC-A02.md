@@ -116,49 +116,49 @@ entity "UserRepository" as ユーザーRepo
 
 ```mermaid
 sequenceDiagram
-  actor 管理者 as 管理者 (招待済み)
-  participant 招待受付API as POST /auth/invitation/accept
-  participant ユースケース as InvitationAcceptUseCase
-  participant 招待トークンRepo as InvitationTokenRepository (DB)
-  participant ユーザーRepo as UserRepository (DB)
-  管理者->>招待受付API: POST /auth/invitation/accept<br/>{ token, password }
-  招待受付API->>ユースケース: accept(token, password)
-  ユースケース->>ユースケース: validatePassword(password)
+  actor Admin as 管理者 (招待済み)
+  participant InviteAcceptAPI as 招待受付API
+  participant UseCase as ユースケース
+  participant InviteRepo as 招待トークンRepo
+  participant UserRepo as ユーザーRepo
+  Admin->>InviteAcceptAPI: POST /auth/invitation/accept<br/>{ token, password }
+  InviteAcceptAPI->>UseCase: accept(token, password)
+  UseCase->>UseCase: validatePassword(password)
   alt E1: パスワード強度不足
-  ユースケース-->>招待受付API: ValidationError
-  招待受付API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  UseCase-->>InviteAcceptAPI: ValidationError
+  InviteAcceptAPI-->>Admin: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
   end
-  ユースケース->>招待トークンRepo: findByToken(token)
-  招待トークンRepo-->>ユースケース: result
+  UseCase->>InviteRepo: findByToken(token)
+  InviteRepo-->>UseCase: result
   alt E2: トークンが存在しない
-  ユースケース-->>招待受付API: InvalidTokenError
-  招待受付API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
+  UseCase-->>InviteAcceptAPI: InvalidTokenError
+  InviteAcceptAPI-->>Admin: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
   end
-  ユースケース->>ユースケース: checkAlreadyUsed(token)
+  UseCase->>UseCase: checkAlreadyUsed(token)
   alt E3: トークンが使用済み
-  ユースケース-->>招待受付API: InvalidTokenError
-  招待受付API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
+  UseCase-->>InviteAcceptAPI: InvalidTokenError
+  InviteAcceptAPI-->>Admin: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
   end
-  ユースケース->>ユースケース: checkExpiry(token)
+  UseCase->>UseCase: checkExpiry(token)
   alt E4: 招待トークン有効期限切れ
-  ユースケース->>招待トークンRepo: markAsExpired(token)
-  ユースケース-->>招待受付API: TokenExpiredError
-  招待受付API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../token-expired
+  UseCase->>InviteRepo: markAsExpired(token)
+  UseCase-->>InviteAcceptAPI: TokenExpiredError
+  InviteAcceptAPI-->>Admin: 400 Bad Request<br/>application/problem+json<br/>type: .../token-expired
   end
-  ユースケース->>ユースケース: bcrypt hash(password)
+  UseCase->>UseCase: bcrypt hash(password)
   critical トランザクション ステップ7〜8
-  ユースケース->>ユーザーRepo: create(user{ email: token.email,<br/>hashedPassword, status: verified,<br/>role: token.role })
-  ユーザーRepo-->>ユースケース: createdUser
-  ユースケース->>招待トークンRepo: markAsUsed(token)
-  招待トークンRepo-->>ユースケース: updated
+  UseCase->>UserRepo: create(user{ email: token.email,<br/>hashedPassword, status: verified,<br/>role: token.role })
+  UserRepo-->>UseCase: createdUser
+  UseCase->>InviteRepo: markAsUsed(token)
+  InviteRepo-->>UseCase: updated
   end
   alt E5: トランザクション失敗
-  Note right of ユースケース: ERROR ログ<br/>{ ctx: "invitation_accept",<br/>msg: "招待受付トランザクション失敗" }<br/>ロールバック: 全操作を取消
-  ユースケース-->>招待受付API: InternalError
-  招待受付API-->>管理者: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
+  Note right of UseCase: ERROR ログ<br/>{ ctx: "invitation_accept",<br/>msg: "招待受付トランザクション失敗" }<br/>ロールバック: 全操作を取消
+  UseCase-->>InviteAcceptAPI: InternalError
+  InviteAcceptAPI-->>Admin: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
   end
-  ユースケース-->>招待受付API: success
-  招待受付API-->>管理者: 200 OK
+  UseCase-->>InviteAcceptAPI: success
+  InviteAcceptAPI-->>Admin: 200 OK
 ```
 
 ---

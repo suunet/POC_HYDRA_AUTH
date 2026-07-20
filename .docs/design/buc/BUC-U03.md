@@ -25,22 +25,23 @@
 ### 基本フロー
 
 1. ユーザーはメールアドレスを送信する
-2. システムはメールアドレスの登録状態・確認状態を確認する
-3. システムはRedisで同一メールアドレスへの最終送信時刻を確認する（TTL 5分）
-4. システムは既存のメール確認トークンを無効化する
+2. システムは同一メールのレートリミット（VAR-13）を**最初に**確認・記録する（一様適用＝以降の分岐に依らず記録が確定する。チェック時記録）
+3. システムはメールアドレスの登録状態・確認状態を確認する
+4. システムは既存の有効なメール確認トークンを無効化する（`used_at` を打つ・CND-10）
 5. システムは新しいメール確認トークン（有効期限24時間、使い切り）を生成しDBに保存する
 6. システムはメール確認トークンをメールサーバー経由で送信する
-7. システムはRedisに送信時刻を記録する（TTL 5分）
-8. システムは200レスポンスを返す
+7. システムは200レスポンスを返す
+
+> ステップ4〜6は単一トランザクション（送信失敗＝E2で全ロールバック）。ただしステップ2のレート記録はTx外で確定し、E2でもロールバックしない（＝窓を消費する）。
 
 ### 代替フロー
 
-**A1. メールアドレスが未登録の場合（ステップ2）**
+**A1. メールアドレスが未登録の場合（ステップ3・論理削除済みも未登録相当）**
 
 - a. システムはメール送信を行わない
 - b. システムは200レスポンスを返す（登録済みの場合と区別しない）
 
-**A2. メール確認が完了済みの場合（ステップ2）**
+**A2. `mail_unverified` 以外のすべての状態の場合（ステップ3・確認済み/招待済み未受付/無効化済み/削除済みを包含）**
 
 - a. システムはメール送信を行わない
 - b. システムは200レスポンスを返す（未確認の場合と区別しない）
@@ -49,7 +50,7 @@
 
 > 全ログにはNFR-09の必須フィールド（`ts`・`lvl`・`svc`・`ctx`・`trace_id`/`span_id`・`req_id`・`msg`）を含めること。以下の例示は差分フィールド（`ctx`・`msg`・`lvl`）のみを記載する。
 
-**E1. レートリミット超過の場合（ステップ3）**
+**E1. レートリミット超過の場合（ステップ2）**
 
 - a. システムは処理を中断する
 - b. システムは429 (Too Many Requests)、`application/problem+json`、`type: https://example.com/probs/rate-limit-exceeded` を返す
@@ -57,7 +58,7 @@
 
 **E2. メール送信失敗（ステップ6）**
 
-- a. システムは新トークン保存および既存トークン無効化を含むトランザクション全体をロールバックする
+- a. システムは新トークン保存および既存トークン無効化を含むトランザクション（ステップ4〜6）全体をロールバックする。**ただしステップ2のレート窓は消費したまま**（SMTP一時障害時は5分後に再試行可能・可用性より試行計数の一貫性を優先）
 - b. システムは503 (Service Unavailable)、`application/problem+json`、`type: https://example.com/probs/mail-delivery-error` を返す
 - c. ERRORレベルでログを出力する（`{ ctx: "email_confirm_token_resend", msg: "メール送信失敗", lvl: "ERROR" }`。メールアドレスはログに含めない）
 
@@ -84,22 +85,19 @@ boundary "メールサーバー" as メールサーバー
 
 再送信API --> ユースケース : resend(email)
 
+ユースケース --> Redis : checkAndRecordRateLimit(email)（最初・チェック時記録）
 ユースケース --> ユーザーRepo : findByEmail(email)
 ユースケース --> ユースケース : checkStatus(user)
 
 note right of ユースケース
-  A1: メールアドレス未登録の場合
-  A2: メール確認が完了済みの場合
-  いずれもメール送信を行わず
-  200を返す（列挙攻撃対策）
+  A1: 未登録　A2: mail_unverified以外の全状態
+  いずれもメール送信を行わず 200（列挙攻撃対策）
 end note
 
-ユースケース --> Redis : getRateLimitRecord(email)
 ユースケース --> 確認トークンRepo : invalidateExisting(email)
 ユースケース --> トークン生成 : generateEmailConfirmToken()
 ユースケース --> 確認トークンRepo : save(token{ expires_at: +24h })
 ユースケース --> メールサーバー : sendConfirmEmail(token)
-ユースケース --> Redis : setRateLimitRecord(email, TTL: 5min)
 
 再送信API <-- ユースケース : 200 OK
 
@@ -112,42 +110,40 @@ end note
 
 ```mermaid
 sequenceDiagram
-  actor ユーザー as ユーザー
-  participant 再送信API as POST /auth/email-verify/resend
-  participant ユースケース as EmailConfirmTokenResendUseCase
-  participant ユーザーRepo as UserRepository (DB)
-  participant 確認トークンRepo as EmailConfirmTokenRepository (DB)
+  actor User as ユーザー
+  participant ResendAPI as 再送信API
+  participant UseCase as ユースケース
+  participant UserRepo as ユーザーRepo
+  participant TokenRepo as 確認トークンRepo
   participant Redis as Redis
-  participant メールサーバー as メールサーバー
-  ユーザー->>再送信API: POST /auth/email-verify/resend<br/>{ email }
-  再送信API->>ユースケース: resend(email)
-  ユースケース->>ユーザーRepo: findByEmail(email)
-  ユーザーRepo-->>ユースケース: user
-  alt 未登録 または メール確認済み（列挙攻撃対策）
-  Note right of ユースケース: メール送信を行わず<br/>成功扱いで返す
-  ユースケース-->>再送信API: success
-  再送信API-->>ユーザー: 200 OK
+  participant MailServer as メールサーバー
+  User->>ResendAPI: POST /auth/email-verify/resend<br/>{ email }
+  ResendAPI->>UseCase: resend(email)
+  UseCase->>Redis: レート確認・記録（VAR-13・最初・一様・チェック時記録）
+  alt レートリミット超過（E1・TTL 5分以内）
+  UseCase-->>ResendAPI: RateLimitExceededError
+  ResendAPI-->>User: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
   end
-  ユースケース->>Redis: getRateLimitRecord(email)
-  Redis-->>ユースケース: record
-  alt レートリミット超過（TTL 5分以内）
-  ユースケース-->>再送信API: RateLimitExceededError
-  再送信API-->>ユーザー: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
+  UseCase->>UserRepo: findByEmail(email)
+  UserRepo-->>UseCase: user
+  alt 未登録 または mail_unverified以外（A1/A2・列挙攻撃対策）
+  Note right of UseCase: メール送信を行わず<br/>成功扱いで返す
+  UseCase-->>ResendAPI: success
+  ResendAPI-->>User: 200 OK
   end
-  ユースケース->>確認トークンRepo: invalidateExisting(email)
-  ユースケース->>確認トークンRepo: save(emailConfirmToken{ expires_at: +24h })
-  確認トークンRepo-->>ユースケース: token
-  ユースケース->>メールサーバー: sendConfirmEmail(token)
+  UseCase->>TokenRepo: invalidateExisting(email)
+  UseCase->>TokenRepo: save(emailConfirmToken{ expires_at: +24h })
+  TokenRepo-->>UseCase: token
+  UseCase->>MailServer: sendConfirmEmail(token)
   alt メール送信失敗
-  メールサーバー-->>ユースケース: error
-  ユースケース->>確認トークンRepo: rollback()<br/>（新トークン保存・既存トークン無効化を含むトランザクション全体）
-  ユースケース-->>再送信API: MailDeliveryError
-  Note right of 再送信API: { ctx: "email_confirm_token_resend", msg: "メール送信失敗", lvl: "ERROR" }
-  再送信API-->>ユーザー: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error
+  MailServer-->>UseCase: error
+  UseCase->>TokenRepo: rollback()<br/>（新トークン保存・既存トークン無効化を含むトランザクション全体）
+  UseCase-->>ResendAPI: MailDeliveryError
+  Note right of ResendAPI: { ctx: "email_confirm_token_resend", msg: "メール送信失敗", lvl: "ERROR" }
+  ResendAPI-->>User: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error（レート窓は消費したまま）
   end
-  ユースケース->>Redis: setRateLimitRecord(email, TTL: 5min)
-  ユースケース-->>再送信API: success
-  再送信API-->>ユーザー: 200 OK
+  UseCase-->>ResendAPI: success
+  ResendAPI-->>User: 200 OK
 ```
 
 ---
@@ -166,3 +162,6 @@ sequenceDiagram
 | 既存トークンの無効化 | 再送信前に既存の有効トークンを無効化する | 複数の有効トークンが並存することによる不整合を防ぐ |
 | メール送信失敗時のロールバック | トークン生成・保存をロールバックする | 送信されないトークンがDBに残ることによる不整合を防ぐ |
 | レートリミット管理 | RedisのTTL付きキーで管理（5分に1回）。パスワードリセットと同値だが独立した設定値 | NFR-12・VAR-13（メール確認トークン再送信レートリミット） |
+| レート評価順・一様適用 | レートを**最初**に評価・記録し、登録状態に依らず一様。429/200の挙動差で「登録済み・未確認」を判別させない | FR-04の列挙攻撃対策をレートで迂回させないため |
+| E2時のレート窓 | 送信失敗でもステップ2のレート窓は消費（ロールバックしない） | INF-11「リクエスト記録」の意味論（試行を数える）。可用性より計数一貫性を優先 |
+| 応答タイミング差 | 沈黙200（トークン発行・送信をスキップ）と正常200の応答時間差は**POCでは非対応** | timing側チャネルはPOCスコープ外（無言の穴にしない明示） |

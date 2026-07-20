@@ -65,6 +65,9 @@ const EmailConfirmationTokenTTL = 24 * time.Hour
 
 const RegistrationRateLimitWindow = 5 * time.Minute
 
+// VAR-13: 同一メールアドレスの再送は5分に1回
+const ResendEmailRateLimitWindow = 5 * time.Minute
+
 const tokenPlainBytes = 32 // NOTE: 256bit・crypto/randで生成
 
 // NOTE: 平文は保存せずハッシュ（SHA-256）のみ持つ（漏洩対策）

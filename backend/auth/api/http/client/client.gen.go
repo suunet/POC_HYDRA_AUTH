@@ -22,6 +22,12 @@ type EmailVerifyRequest struct {
 	Token string `json:"token"`
 }
 
+// EmailVerifyResendRequest defines model for EmailVerifyResendRequest.
+type EmailVerifyResendRequest struct {
+	// Email VAR-01（RFC5322準拠・最大254文字）
+	Email openapi_types.Email `json:"email"`
+}
+
 // Problem RFC 9457 Problem Details（NFR-06）。retry_after・revocation_reason は拡張フィールド
 type Problem struct {
 	Detail   *string `json:"detail,omitempty"`
@@ -50,6 +56,9 @@ type RegisterAccountRequest struct {
 
 // VerifyEmailJSONRequestBody defines body for VerifyEmail for application/json ContentType.
 type VerifyEmailJSONRequestBody = EmailVerifyRequest
+
+// ResendEmailVerificationJSONRequestBody defines body for ResendEmailVerification for application/json ContentType.
+type ResendEmailVerificationJSONRequestBody = EmailVerifyResendRequest
 
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
@@ -132,6 +141,11 @@ type ClientInterface interface {
 
 	VerifyEmail(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ResendEmailVerificationWithBody request with any body
+	ResendEmailVerificationWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ResendEmailVerification(ctx context.Context, body ResendEmailVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// RegisterAccountWithBody request with any body
 	RegisterAccountWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -152,6 +166,30 @@ func (c *Client) VerifyEmailWithBody(ctx context.Context, contentType string, bo
 
 func (c *Client) VerifyEmail(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewVerifyEmailRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ResendEmailVerificationWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResendEmailVerificationRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ResendEmailVerification(ctx context.Context, body ResendEmailVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResendEmailVerificationRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +245,46 @@ func NewVerifyEmailRequestWithBody(server string, contentType string, body io.Re
 	}
 
 	operationPath := fmt.Sprintf("/auth/email-verify")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewResendEmailVerificationRequest calls the generic ResendEmailVerification builder with application/json body
+func NewResendEmailVerificationRequest(server string, body ResendEmailVerificationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewResendEmailVerificationRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewResendEmailVerificationRequestWithBody generates requests for ResendEmailVerification with any type of body
+func NewResendEmailVerificationRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/auth/email-verify/resend")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -314,6 +392,11 @@ type ClientWithResponsesInterface interface {
 
 	VerifyEmailWithResponse(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error)
 
+	// ResendEmailVerificationWithBodyWithResponse request with any body
+	ResendEmailVerificationWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResendEmailVerificationResponse, error)
+
+	ResendEmailVerificationWithResponse(ctx context.Context, body ResendEmailVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*ResendEmailVerificationResponse, error)
+
 	// RegisterAccountWithBodyWithResponse request with any body
 	RegisterAccountWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterAccountResponse, error)
 
@@ -337,6 +420,29 @@ func (r VerifyEmailResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r VerifyEmailResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ResendEmailVerificationResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	ApplicationproblemJSON429 *Problem
+	ApplicationproblemJSON503 *Problem
+}
+
+// Status returns HTTPResponse.Status
+func (r ResendEmailVerificationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResendEmailVerificationResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -384,6 +490,23 @@ func (c *ClientWithResponses) VerifyEmailWithResponse(ctx context.Context, body 
 	return ParseVerifyEmailResponse(rsp)
 }
 
+// ResendEmailVerificationWithBodyWithResponse request with arbitrary body returning *ResendEmailVerificationResponse
+func (c *ClientWithResponses) ResendEmailVerificationWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResendEmailVerificationResponse, error) {
+	rsp, err := c.ResendEmailVerificationWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResendEmailVerificationResponse(rsp)
+}
+
+func (c *ClientWithResponses) ResendEmailVerificationWithResponse(ctx context.Context, body ResendEmailVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*ResendEmailVerificationResponse, error) {
+	rsp, err := c.ResendEmailVerification(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResendEmailVerificationResponse(rsp)
+}
+
 // RegisterAccountWithBodyWithResponse request with arbitrary body returning *RegisterAccountResponse
 func (c *ClientWithResponses) RegisterAccountWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterAccountResponse, error) {
 	rsp, err := c.RegisterAccountWithBody(ctx, contentType, body, reqEditors...)
@@ -428,6 +551,39 @@ func ParseVerifyEmailResponse(rsp *http.Response) (*VerifyEmailResponse, error) 
 			return nil, err
 		}
 		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResendEmailVerificationResponse parses an HTTP response from a ResendEmailVerificationWithResponse call
+func ParseResendEmailVerificationResponse(rsp *http.Response) (*ResendEmailVerificationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResendEmailVerificationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
 
 	}
 

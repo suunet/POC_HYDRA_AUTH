@@ -97,6 +97,47 @@ paths:
                 title: Too Many Requests
                 status: 429
                 retry_after: 42
+  /auth/email-verify/resend:
+    post:
+      summary: メール確認トークンを再送する
+      operationId: resendEmailVerification
+      tags:
+        - commands
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailVerifyResendRequest'
+      responses:
+        '200':
+          description: 受け付けた（UC-004・FR-04＝未登録/確認済みでも一律200・メール送信なし）。STM-01は不変（mail_unverifiedのまま）
+        '429':
+          description: 再送信レートリミット超過（VAR-13・E1。メールキー・一様適用・retry_afterはTTL残秒数）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数（bodyのretry_afterと同値）
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/rate-limit-exceeded
+                title: Too Many Requests
+                status: 429
+                retry_after: 240
+        '503':
+          description: メール送信失敗（E2。新トークン発行・既存無効化はロールバック済み。ただしレート窓は消費）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/mail-delivery-error
+                title: Service Unavailable
+                status: 503
 components:
   schemas:
     RegisterAccountRequest:
@@ -115,6 +156,16 @@ components:
           minLength: 15
           maxLength: 64
           description: VAR-02（最小15文字・最大64文字・文字種の混在強制なし）
+    EmailVerifyResendRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: VAR-01（RFC5322準拠・最大254文字）
     EmailVerifyRequest:
       type: object
       required:

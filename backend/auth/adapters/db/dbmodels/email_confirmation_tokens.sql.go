@@ -72,6 +72,21 @@ func (q *Queries) InsertEmailConfirmationToken(ctx context.Context, arg InsertEm
 	return err
 }
 
+const invalidateActiveEmailConfirmationTokensByUser = `-- name: InvalidateActiveEmailConfirmationTokensByUser :execrows
+UPDATE auth.email_confirmation_tokens
+SET used_at = now()
+WHERE user_uuid = $1
+  AND used_at IS NULL
+`
+
+func (q *Queries) InvalidateActiveEmailConfirmationTokensByUser(ctx context.Context, userUuid uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, invalidateActiveEmailConfirmationTokensByUser, userUuid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const markEmailConfirmationTokenUsed = `-- name: MarkEmailConfirmationTokenUsed :execrows
 UPDATE auth.email_confirmation_tokens
 SET used_at = now()

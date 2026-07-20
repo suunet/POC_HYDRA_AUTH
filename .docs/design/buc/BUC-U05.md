@@ -125,59 +125,59 @@ entity "UserRepository" as ユーザーRepo
 
 ```mermaid
 sequenceDiagram
-  actor ユーザー as ユーザー
-  participant トークン再発行API as POST /auth/token/refresh
-  participant ユースケース as RefreshTokenUseCase
-  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
-  participant ユーザーRepo as UserRepository (DB)
-  ユーザー->>トークン再発行API: POST /auth/token/refresh<br/>{ refreshToken }
-  トークン再発行API->>ユースケース: refresh(refreshToken)
-  ユースケース->>ユースケース: validateTokenFormat(refreshToken)
+  actor User as ユーザー
+  participant RefreshAPI as トークン再発行API
+  participant UseCase as ユースケース
+  participant RefreshRepo as リフレッシュトークンRepo
+  participant UserRepo as ユーザーRepo
+  User->>RefreshAPI: POST /auth/token/refresh<br/>{ refreshToken }
+  RefreshAPI->>UseCase: refresh(refreshToken)
+  UseCase->>UseCase: validateTokenFormat(refreshToken)
   alt E1: リフレッシュトークン形式不正
-  ユースケース-->>トークン再発行API: InvalidTokenError
-  トークン再発行API-->>ユーザー: 401 Unauthorized<br/>application/problem+json<br/>type: .../invalid-token
+  UseCase-->>RefreshAPI: InvalidTokenError
+  RefreshAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../invalid-token
   end
-  ユースケース->>リフレッシュトークンRepo: findByToken(refreshToken)
-  リフレッシュトークンRepo-->>ユースケース: result
+  UseCase->>RefreshRepo: findByToken(refreshToken)
+  RefreshRepo-->>UseCase: result
   alt E2: リフレッシュトークンが存在しない
-  Note right of ユースケース: WARNING 監査ログ<br/>{ ctx: "token_refresh", msg: "不正トークンでのアクセス試行" }
-  ユースケース-->>トークン再発行API: InvalidTokenError
-  トークン再発行API-->>ユーザー: 401 Unauthorized<br/>application/problem+json<br/>type: .../invalid-token
+  Note right of UseCase: WARNING 監査ログ<br/>{ ctx: "token_refresh", msg: "不正トークンでのアクセス試行" }
+  UseCase-->>RefreshAPI: InvalidTokenError
+  RefreshAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../invalid-token
   end
-  ユースケース->>ユースケース: checkExpiry(token)
+  UseCase->>UseCase: checkExpiry(token)
   alt E3: リフレッシュトークン有効期限切れ
-  ユースケース->>リフレッシュトークンRepo: markAsExpired(token)
-  ユースケース-->>トークン再発行API: TokenExpiredError
-  トークン再発行API-->>ユーザー: 401 Unauthorized<br/>application/problem+json<br/>type: .../token-expired
+  UseCase->>RefreshRepo: markAsExpired(token)
+  UseCase-->>RefreshAPI: TokenExpiredError
+  RefreshAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../token-expired
   end
-  ユースケース->>ユースケース: checkAlreadyUsed(token)
+  UseCase->>UseCase: checkAlreadyUsed(token)
   alt E4: リフレッシュトークン再利用検知
-  ユースケース->>リフレッシュトークンRepo: revokeAllByUserId(token.userId)
-  Note right of リフレッシュトークンRepo: CRITICAL 監査ログ<br/>{ ctx: "token_refresh",<br/>msg: "リフレッシュトークン再利用検知・<br/>全セッション無効化" }<br/>ロールバック: 全セッション無効化は<br/>部分失敗を許容しない
-  ユースケース-->>トークン再発行API: SessionRevokedError
-  トークン再発行API-->>ユーザー: 401 Unauthorized<br/>application/problem+json<br/>type: .../session-revoked<br/>revocation_reason: token_reuse_detected
+  UseCase->>RefreshRepo: revokeAllByUserId(token.userId)
+  Note right of RefreshRepo: CRITICAL 監査ログ<br/>{ ctx: "token_refresh",<br/>msg: "リフレッシュトークン再利用検知・<br/>全セッション無効化" }<br/>ロールバック: 全セッション無効化は<br/>部分失敗を許容しない
+  UseCase-->>RefreshAPI: SessionRevokedError
+  RefreshAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../session-revoked<br/>revocation_reason: token_reuse_detected
   end
-  ユースケース->>ユーザーRepo: findById(token.userId, excludeDeleted: true)
-  ユーザーRepo-->>ユースケース: result
+  UseCase->>UserRepo: findById(token.userId, excludeDeleted: true)
+  UserRepo-->>UseCase: result
   alt E5: ユーザーが存在しない（削除済み）
-  ユースケース->>リフレッシュトークンRepo: markAsRevoked(token)
-  ユースケース-->>トークン再発行API: SessionRevokedError
-  トークン再発行API-->>ユーザー: 401 Unauthorized<br/>application/problem+json<br/>type: .../session-revoked<br/>revocation_reason: account_deleted
+  UseCase->>RefreshRepo: markAsRevoked(token)
+  UseCase-->>RefreshAPI: SessionRevokedError
+  RefreshAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../session-revoked<br/>revocation_reason: account_deleted
   end
-  ユースケース->>ユースケース: checkAccountStatus(user)
+  UseCase->>UseCase: checkAccountStatus(user)
   alt E6: アカウント無効化済み
-  ユースケース->>リフレッシュトークンRepo: markAsRevoked(token)
-  ユースケース-->>トークン再発行API: SessionRevokedError
-  トークン再発行API-->>ユーザー: 401 Unauthorized<br/>application/problem+json<br/>type: .../session-revoked<br/>revocation_reason: account_disabled
+  UseCase->>RefreshRepo: markAsRevoked(token)
+  UseCase-->>RefreshAPI: SessionRevokedError
+  RefreshAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../session-revoked<br/>revocation_reason: account_disabled
   end
-  ユースケース->>リフレッシュトークンRepo: markAsUsed(token)
-  ユースケース->>ユースケース: generateRefreshToken()
-  ユースケース->>リフレッシュトークンRepo: save(newRefreshToken{ user_id, parent_token_id, expires_at })
-  リフレッシュトークンRepo-->>ユースケース: savedToken
-  ユースケース->>ユースケース: generateAccessToken<br/>(JWT RS256, { sub: user.id, roles: user.roles })
-  Note right of ユースケース: INFO 監査ログ<br/>{ ctx: "token_refresh", msg: "アクセストークン期限切れ" }
-  ユースケース-->>トークン再発行API: success
-  トークン再発行API-->>ユーザー: 200 OK<br/>{ accessToken, refreshToken }
+  UseCase->>RefreshRepo: markAsUsed(token)
+  UseCase->>UseCase: generateRefreshToken()
+  UseCase->>RefreshRepo: save(newRefreshToken{ user_id, parent_token_id, expires_at })
+  RefreshRepo-->>UseCase: savedToken
+  UseCase->>UseCase: generateAccessToken<br/>(JWT RS256, { sub: user.id, roles: user.roles })
+  Note right of UseCase: INFO 監査ログ<br/>{ ctx: "token_refresh", msg: "アクセストークン期限切れ" }
+  UseCase-->>RefreshAPI: success
+  RefreshAPI-->>User: 200 OK<br/>{ accessToken, refreshToken }
 ```
 
 ---

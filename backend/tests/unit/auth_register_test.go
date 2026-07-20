@@ -77,16 +77,18 @@ func (f *fakeMailer) SendConfirmationEmail(ctx context.Context, to, token string
 }
 
 type testDeps struct {
-	repo    *fakeUserRepository
-	limiter *fakeRateLimiter
-	mailer  *fakeMailer
+	repo       *fakeUserRepository
+	resendRepo *fakeResendRepository
+	limiter    *fakeRateLimiter
+	mailer     *fakeMailer
 }
 
 func newTestDeps() *testDeps {
 	return &testDeps{
-		repo:    &fakeUserRepository{existing: map[string]bool{}},
-		limiter: &fakeRateLimiter{blocked: map[string]bool{}},
-		mailer:  &fakeMailer{},
+		repo:       &fakeUserRepository{existing: map[string]bool{}},
+		resendRepo: &fakeResendRepository{users: map[string]fakeResendUser{}},
+		limiter:    &fakeRateLimiter{blocked: map[string]bool{}},
+		mailer:     &fakeMailer{},
 	}
 }
 
@@ -94,7 +96,11 @@ func newAuthTestEcho(t *testing.T, d *testDeps) http.Handler {
 	t.Helper()
 	logger := applog.New(&bytes.Buffer{}, "auth-service")
 	e := commonhttp.NewEcho(logger)
-	apihttp.Register(e, apihttp.NewHandler(command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer), command.NewVerifyEmailHandler(&fakeTokenRepository{}, &fakeRateLimiter{blocked: map[string]bool{}})))
+	apihttp.Register(e, apihttp.NewHandler(
+		command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer),
+		command.NewVerifyEmailHandler(&fakeTokenRepository{}, &fakeRateLimiter{blocked: map[string]bool{}}),
+		command.NewResendEmailVerificationHandler(d.resendRepo, d.limiter, d.mailer),
+	))
 	return e
 }
 

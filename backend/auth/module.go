@@ -28,6 +28,7 @@ type Deps struct {
 	PgxDb         *pgxpool.Pool
 	Limiter       command.RateLimiter
 	VerifyLimiter command.RateLimiter
+	ResendLimiter command.RateLimiter
 	Mailer        command.Mailer
 }
 
@@ -35,9 +36,10 @@ func NewModule(deps Deps) *Module {
 	users := authdb.NewUserRepository(deps.PgxDb)
 	register := command.NewRegisterAccountHandler(users, deps.Limiter, deps.Mailer)
 	verify := command.NewVerifyEmailHandler(users, deps.VerifyLimiter)
+	resend := command.NewResendEmailVerificationHandler(users, deps.ResendLimiter, deps.Mailer)
 	return &Module{
 		pgxDb:   deps.PgxDb,
-		handler: apihttp.NewHandler(register, verify),
+		handler: apihttp.NewHandler(register, verify, resend),
 	}
 }
 

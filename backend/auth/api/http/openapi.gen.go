@@ -20,6 +20,12 @@ type EmailVerifyRequest struct {
 	Token string `json:"token"`
 }
 
+// EmailVerifyResendRequest defines model for EmailVerifyResendRequest.
+type EmailVerifyResendRequest struct {
+	// Email VAR-01（RFC5322準拠・最大254文字）
+	Email openapi_types.Email `json:"email"`
+}
+
 // Problem RFC 9457 Problem Details（NFR-06）。retry_after・revocation_reason は拡張フィールド
 type Problem struct {
 	Detail   *string `json:"detail,omitempty"`
@@ -49,6 +55,9 @@ type RegisterAccountRequest struct {
 // VerifyEmailJSONRequestBody defines body for VerifyEmail for application/json ContentType.
 type VerifyEmailJSONRequestBody = EmailVerifyRequest
 
+// ResendEmailVerificationJSONRequestBody defines body for ResendEmailVerification for application/json ContentType.
+type ResendEmailVerificationJSONRequestBody = EmailVerifyResendRequest
+
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
 
@@ -57,6 +66,9 @@ type ServerInterface interface {
 	// メールアドレスを確認する
 	// (POST /auth/email-verify)
 	VerifyEmail(ctx echo.Context) error
+	// メール確認トークンを再送する
+	// (POST /auth/email-verify/resend)
+	ResendEmailVerification(ctx echo.Context) error
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx echo.Context) error
@@ -73,6 +85,15 @@ func (w *ServerInterfaceWrapper) VerifyEmail(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.VerifyEmail(ctx)
+	return err
+}
+
+// ResendEmailVerification converts echo context to params.
+func (w *ServerInterfaceWrapper) ResendEmailVerification(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ResendEmailVerification(ctx)
 	return err
 }
 
@@ -114,6 +135,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	}
 
 	router.POST(baseURL+"/auth/email-verify", wrapper.VerifyEmail)
+	router.POST(baseURL+"/auth/email-verify/resend", wrapper.ResendEmailVerification)
 	router.POST(baseURL+"/auth/register", wrapper.RegisterAccount)
 
 }
@@ -158,6 +180,48 @@ func (response VerifyEmail429ApplicationProblemPlusJSONResponse) VisitVerifyEmai
 	w.WriteHeader(429)
 
 	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ResendEmailVerificationRequestObject struct {
+	Body *ResendEmailVerificationJSONRequestBody
+}
+
+type ResendEmailVerificationResponseObject interface {
+	VisitResendEmailVerificationResponse(w http.ResponseWriter) error
+}
+
+type ResendEmailVerification200Response struct {
+}
+
+func (response ResendEmailVerification200Response) VisitResendEmailVerificationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type ResendEmailVerification429ResponseHeaders struct {
+	RetryAfter int
+}
+
+type ResendEmailVerification429ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers ResendEmailVerification429ResponseHeaders
+}
+
+func (response ResendEmailVerification429ApplicationProblemPlusJSONResponse) VisitResendEmailVerificationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ResendEmailVerification503ApplicationProblemPlusJSONResponse Problem
+
+func (response ResendEmailVerification503ApplicationProblemPlusJSONResponse) VisitResendEmailVerificationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type RegisterAccountRequestObject struct {
@@ -216,6 +280,9 @@ type StrictServerInterface interface {
 	// メールアドレスを確認する
 	// (POST /auth/email-verify)
 	VerifyEmail(ctx context.Context, request VerifyEmailRequestObject) (VerifyEmailResponseObject, error)
+	// メール確認トークンを再送する
+	// (POST /auth/email-verify/resend)
+	ResendEmailVerification(ctx context.Context, request ResendEmailVerificationRequestObject) (ResendEmailVerificationResponseObject, error)
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx context.Context, request RegisterAccountRequestObject) (RegisterAccountResponseObject, error)
@@ -256,6 +323,35 @@ func (sh *strictHandler) VerifyEmail(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(VerifyEmailResponseObject); ok {
 		return validResponse.VisitVerifyEmailResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ResendEmailVerification operation middleware
+func (sh *strictHandler) ResendEmailVerification(ctx echo.Context) error {
+	var request ResendEmailVerificationRequestObject
+
+	var body ResendEmailVerificationJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ResendEmailVerification(ctx.Request().Context(), request.(ResendEmailVerificationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResendEmailVerification")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ResendEmailVerificationResponseObject); ok {
+		return validResponse.VisitResendEmailVerificationResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

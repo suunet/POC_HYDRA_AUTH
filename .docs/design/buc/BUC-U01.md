@@ -123,51 +123,51 @@ end note
 
 ```mermaid
 sequenceDiagram
-  actor ユーザー as ユーザー
-  participant 登録API as POST /auth/register
-  participant ユースケース as UserRegistrationUseCase
+  actor User as ユーザー
+  participant RegisterAPI as 登録API
+  participant UseCase as ユースケース
   participant Rate as INF-13 登録送信記録（EXT-02 Redis）
-  participant ユーザーRepo as UserRepository (DB)
-  participant 確認トークンRepo as EmailConfirmTokenRepository (DB)
-  participant メールサーバー as メールサーバー
-  ユーザー->>登録API: POST /auth/register<br/>{ email, password }
-  登録API->>ユースケース: register(email, password)
-  ユースケース->>Rate: レート確認・判定（VAR-16・一様適用。超過していない場合のみ記録更新）
+  participant UserRepo as ユーザーRepo
+  participant TokenRepo as 確認トークンRepo
+  participant MailServer as メールサーバー
+  User->>RegisterAPI: POST /auth/register<br/>{ email, password }
+  RegisterAPI->>UseCase: register(email, password)
+  UseCase->>Rate: レート確認・判定（VAR-16・一様適用。超過していない場合のみ記録更新）
   alt レートリミット超過（E4）
-  ユースケース-->>登録API: RateLimitError
-  登録API-->>ユーザー: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded (retry_after)
+  UseCase-->>RegisterAPI: RateLimitError
+  RegisterAPI-->>User: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded (retry_after)
   end
-  ユースケース->>ユースケース: validateEmail(email)
+  UseCase->>UseCase: validateEmail(email)
   alt メールアドレス形式バリデーション失敗
-  ユースケース-->>登録API: ValidationError
-  登録API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  UseCase-->>RegisterAPI: ValidationError
+  RegisterAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
   end
-  ユースケース->>ユースケース: validatePassword(password)
+  UseCase->>UseCase: validatePassword(password)
   alt パスワード強度バリデーション失敗
-  ユースケース-->>登録API: ValidationError
-  登録API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  UseCase-->>RegisterAPI: ValidationError
+  RegisterAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
   end
-  ユースケース->>ユーザーRepo: findByEmail(email)
-  ユーザーRepo-->>ユースケース: result
+  UseCase->>UserRepo: findByEmail(email)
+  UserRepo-->>UseCase: result
   alt メールアドレス未登録
-  ユースケース->>ユースケース: bcrypt hash(password)
-  ユースケース->>ユーザーRepo: save(user{ status: email_unverified, role: user })
-  ユーザーRepo-->>ユースケース: savedUser
-  ユースケース->>確認トークンRepo: save(emailConfirmToken{ expires_at: +24h })
-  確認トークンRepo-->>ユースケース: token
-  ユースケース->>メールサーバー: sendConfirmEmail(token)
+  UseCase->>UseCase: bcrypt hash(password)
+  UseCase->>UserRepo: save(user{ status: email_unverified, role: user })
+  UserRepo-->>UseCase: savedUser
+  UseCase->>TokenRepo: save(emailConfirmToken{ expires_at: +24h })
+  TokenRepo-->>UseCase: token
+  UseCase->>MailServer: sendConfirmEmail(token)
   alt メール送信失敗
-  メールサーバー-->>ユースケース: error
-  ユースケース->>ユーザーRepo: rollback()
-  ユースケース-->>登録API: MailDeliveryError
-  Note right of 登録API: ERROR ログ出力<br/>{ ctx: "user_registration", msg: "メール送信失敗", lvl: "ERROR" }
-  登録API-->>ユーザー: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error
+  MailServer-->>UseCase: error
+  UseCase->>UserRepo: rollback()
+  UseCase-->>RegisterAPI: MailDeliveryError
+  Note right of RegisterAPI: ERROR ログ出力<br/>{ ctx: "user_registration", msg: "メール送信失敗", lvl: "ERROR" }
+  RegisterAPI-->>User: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error
   end
   else メールアドレス登録済み（列挙攻撃対策）
-  Note right of ユースケース: 登録処理・メール送信を行わず<br/>成功扱いで返す
+  Note right of UseCase: 登録処理・メール送信を行わず<br/>成功扱いで返す
   end
-  ユースケース-->>登録API: success
-  登録API-->>ユーザー: 201 Created
+  UseCase-->>RegisterAPI: success
+  RegisterAPI-->>User: 201 Created
 ```
 
 ---

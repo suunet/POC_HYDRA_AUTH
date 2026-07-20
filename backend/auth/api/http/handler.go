@@ -16,10 +16,11 @@ import (
 type Handler struct {
 	register *command.RegisterAccountHandler
 	verify   *command.VerifyEmailHandler
+	resend   *command.ResendEmailVerificationHandler
 }
 
-func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler) *Handler {
-	return &Handler{register: register, verify: verify}
+func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler) *Handler {
+	return &Handler{register: register, verify: verify, resend: resend}
 }
 
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
@@ -69,6 +70,26 @@ func (h *Handler) VerifyEmail(ctx context.Context, req VerifyEmailRequestObject)
 	case errors.As(err, &verifyRateLimited):
 		problem := commonhttp.NewProblemError(http.StatusTooManyRequests, "rate-limit-exceeded", "メール確認リクエストが多すぎます")
 		return nil, problem.WithRetryAfter(int(math.Ceil(verifyRateLimited.RetryAfter.Seconds())))
+	default:
+		return nil, err
+	}
+}
+
+func (h *Handler) ResendEmailVerification(ctx context.Context, req ResendEmailVerificationRequestObject) (ResendEmailVerificationResponseObject, error) {
+	if req.Body == nil {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
+	}
+
+	err := h.resend.Handle(ctx, string(req.Body.Email))
+	var rateLimited *command.RateLimitedError
+	switch {
+	case err == nil:
+		return ResendEmailVerification200Response{}, nil
+	case errors.As(err, &rateLimited):
+		problem := commonhttp.NewProblemError(http.StatusTooManyRequests, "rate-limit-exceeded", "メール確認リクエストが多すぎます")
+		return nil, problem.WithRetryAfter(int(math.Ceil(rateLimited.RetryAfter.Seconds())))
+	case errors.Is(err, command.ErrMailDeliveryFail):
+		return nil, commonhttp.NewProblemError(http.StatusServiceUnavailable, "mail-delivery-error", "確認メールの送信に失敗しました")
 	default:
 		return nil, err
 	}

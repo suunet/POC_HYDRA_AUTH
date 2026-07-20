@@ -115,51 +115,51 @@ entity "RefreshTokenRepository" as リフレッシュトークンRepo
 
 ```mermaid
 sequenceDiagram
-  actor 管理者 as 管理者 (super_admin)
-  participant 無効化API as POST /admin/accounts/ :userId/disable
-  participant ユースケース as AccountDisableUseCase
-  participant ユーザーRepo as UserRepository (DB)
-  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
-  管理者->>無効化API: POST /admin/accounts/:userId/disable<br/>[Authorization: Bearer <accessToken>]
-  無効化API->>ユースケース: disable(userId)
-  ユースケース->>ユーザーRepo: findById(userId, excludeDeleted: true)
-  ユーザーRepo-->>ユースケース: result
+  actor Admin as 管理者 (super_admin)
+  participant DisableAPI as 無効化API
+  participant UseCase as ユースケース
+  participant UserRepo as ユーザーRepo
+  participant RefreshRepo as リフレッシュトークンRepo
+  Admin->>DisableAPI: POST /admin/accounts/:userId/disable<br/>[Authorization: Bearer <accessToken>]
+  DisableAPI->>UseCase: disable(userId)
+  UseCase->>UserRepo: findById(userId, excludeDeleted: true)
+  UserRepo-->>UseCase: result
   alt E1: ユーザーが存在しない
-  ユースケース-->>無効化API: UserNotFoundError
-  無効化API-->>管理者: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
+  UseCase-->>DisableAPI: UserNotFoundError
+  DisableAPI-->>Admin: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
   end
-  ユースケース->>ユースケース: checkAdminRole(user)
+  UseCase->>UseCase: checkAdminRole(user)
   alt E2: 管理者ロール未保持
-  ユースケース-->>無効化API: NotAdminAccountError
-  無効化API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../not-admin-account
+  UseCase-->>DisableAPI: NotAdminAccountError
+  DisableAPI-->>Admin: 400 Bad Request<br/>application/problem+json<br/>type: .../not-admin-account
   end
-  ユースケース->>ユースケース: checkNotDisabled(user)
+  UseCase->>UseCase: checkNotDisabled(user)
   alt E3: 既に無効化済み
-  ユースケース-->>無効化API: AccountAlreadyDisabledError
-  無効化API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../account-already-disabled
+  UseCase-->>DisableAPI: AccountAlreadyDisabledError
+  DisableAPI-->>Admin: 409 Conflict<br/>application/problem+json<br/>type: .../account-already-disabled
   end
   opt 対象ユーザーが super_admin の場合
-  ユースケース->>ユーザーRepo: countSuperAdmins()
-  ユーザーRepo-->>ユースケース: count
+  UseCase->>UserRepo: countSuperAdmins()
+  UserRepo-->>UseCase: count
   alt E4: super_admin が1人のみ
-  ユースケース-->>無効化API: LastSuperAdminError
-  無効化API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../last-super-admin
+  UseCase-->>DisableAPI: LastSuperAdminError
+  DisableAPI-->>Admin: 409 Conflict<br/>application/problem+json<br/>type: .../last-super-admin
   end
   end
   critical トランザクション ステップ6〜7
-  ユースケース->>ユーザーRepo: disable(userId)
-  ユーザーRepo-->>ユースケース: updated
-  ユースケース->>リフレッシュトークンRepo: revokeAllByUserId<br/>(userId, reason: account_disabled)
-  リフレッシュトークンRepo-->>ユースケース: revokedCount
+  UseCase->>UserRepo: disable(userId)
+  UserRepo-->>UseCase: updated
+  UseCase->>RefreshRepo: revokeAllByUserId<br/>(userId, reason: account_disabled)
+  RefreshRepo-->>UseCase: revokedCount
   end
   alt E5: トランザクション失敗
-  Note right of ユースケース: ERROR ログ<br/>{ ctx: "account_disable",<br/>msg: "アカウント無効化トランザクション失敗" }<br/>ロールバック: 全操作を取消
-  ユースケース-->>無効化API: InternalError
-  無効化API-->>管理者: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
+  Note right of UseCase: ERROR ログ<br/>{ ctx: "account_disable",<br/>msg: "アカウント無効化トランザクション失敗" }<br/>ロールバック: 全操作を取消
+  UseCase-->>DisableAPI: InternalError
+  DisableAPI-->>Admin: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
   end
-  Note right of 管理者: INFO 監査ログ<br/>{ ctx: "account_disable", msg: "アカウント無効化" }
-  ユースケース-->>無効化API: success
-  無効化API-->>管理者: 200 OK<br/>{ revocation_reason: account_disabled }
+  Note right of Admin: INFO 監査ログ<br/>{ ctx: "account_disable", msg: "アカウント無効化" }
+  UseCase-->>DisableAPI: success
+  DisableAPI-->>Admin: 200 OK<br/>{ revocation_reason: account_disabled }
 ```
 
 ---

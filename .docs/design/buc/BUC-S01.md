@@ -64,13 +64,13 @@ control "HealthCheckUseCase" as ユースケース
 
 ```mermaid
 sequenceDiagram
-  actor クライアント as クライアント
-  participant ヘルスチェックAPI as GET /health
-  participant ユースケース as HealthCheckUseCase
-  クライアント->>ヘルスチェックAPI: GET /health
-  ヘルスチェックAPI->>ユースケース: check()
-  ユースケース-->>ヘルスチェックAPI: ok
-  ヘルスチェックAPI-->>クライアント: 200 OK<br/>{ status: "ok" }
+  actor Client as クライアント
+  participant HealthAPI as ヘルスチェックAPI
+  participant UseCase as ユースケース
+  Client->>HealthAPI: GET /health
+  HealthAPI->>UseCase: check()
+  UseCase-->>HealthAPI: ok
+  HealthAPI-->>Client: 200 OK<br/>{ status: "ok" }
 ```
 
 ---

@@ -100,35 +100,35 @@ end note
 
 ```mermaid
 sequenceDiagram
-  actor ユーザー as ユーザー
-  participant ログアウトAPI as POST /auth/logout
-  participant ミドルウェア as JWTミドルウェア
-  participant ユースケース as LogoutUseCase
-  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
-  ユーザー->>ログアウトAPI: POST /auth/logout<br/>{ refreshToken }<br/>Authorization: Bearer accessToken
-  ログアウトAPI->>ミドルウェア: validateAccessToken()
-  ミドルウェア-->>ログアウトAPI: authenticatedUserId
-  ログアウトAPI->>ユースケース: logout(refreshToken, authenticatedUserId)
-  ユースケース->>ユースケース: validateTokenFormat(refreshToken)
+  actor User as ユーザー
+  participant LogoutAPI as ログアウトAPI
+  participant Middleware as JWTミドルウェア
+  participant UseCase as ユースケース
+  participant RefreshRepo as リフレッシュトークンRepo
+  User->>LogoutAPI: POST /auth/logout<br/>{ refreshToken }<br/>Authorization: Bearer accessToken
+  LogoutAPI->>Middleware: validateAccessToken()
+  Middleware-->>LogoutAPI: authenticatedUserId
+  LogoutAPI->>UseCase: logout(refreshToken, authenticatedUserId)
+  UseCase->>UseCase: validateTokenFormat(refreshToken)
   alt E1: リフレッシュトークン形式不正
-  ユースケース-->>ログアウトAPI: ValidationError
-  ログアウトAPI-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  UseCase-->>LogoutAPI: ValidationError
+  LogoutAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
   end
-  ユースケース->>リフレッシュトークンRepo: findByToken(refreshToken)
-  リフレッシュトークンRepo-->>ユースケース: result
+  UseCase->>RefreshRepo: findByToken(refreshToken)
+  RefreshRepo-->>UseCase: result
   alt A1: トークンが存在しない / 既に失効済み
-  ユースケース-->>ログアウトAPI: success（冪等）
-  ログアウトAPI-->>ユーザー: 200 OK
+  UseCase-->>LogoutAPI: success（冪等）
+  LogoutAPI-->>User: 200 OK
   end
-  ユースケース->>ユースケース: checkOwnership<br/>(token.userId, authenticatedUserId)
+  UseCase->>UseCase: checkOwnership<br/>(token.userId, authenticatedUserId)
   alt E2: ユーザーID不一致
-  Note right of ユースケース: WARNING 監査ログ<br/>{ ctx: "logout",<br/>msg: "他ユーザーのリフレッシュトークンによるログアウト試行" }
-  ユースケース-->>ログアウトAPI: success（情報漏洩防止）
-  ログアウトAPI-->>ユーザー: 200 OK
+  Note right of UseCase: WARNING 監査ログ<br/>{ ctx: "logout",<br/>msg: "他ユーザーのリフレッシュトークンによるログアウト試行" }
+  UseCase-->>LogoutAPI: success（情報漏洩防止）
+  LogoutAPI-->>User: 200 OK
   end
-  ユースケース->>リフレッシュトークンRepo: markAsRevoked(token)
-  ユースケース-->>ログアウトAPI: success
-  ログアウトAPI-->>ユーザー: 200 OK
+  UseCase->>RefreshRepo: markAsRevoked(token)
+  UseCase-->>LogoutAPI: success
+  LogoutAPI-->>User: 200 OK
 ```
 
 ---
