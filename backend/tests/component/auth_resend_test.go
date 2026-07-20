@@ -131,4 +131,8 @@ func TestUC004_Resend_RealServer_MailFails_RollsBack_Returns503(t *testing.T) {
 	old, err := dbmodels.New(pool).GetEmailConfirmationTokenByHash(ctx, domain.HashEmailConfirmationToken(oldPlain))
 	require.NoError(t, err)
 	assert.Nil(t, old.UsedAt, "E2: ロールバックで既存トークンの無効化も取り消される")
+
+	// VAR-13①: トークンはロールバックされてもレート窓はTx外で消費済み＝同一メールの2回目は429（試行を数える）
+	second := resend(t, ctx, email)
+	assert.Equal(t, 429, second.StatusCode(), "E2でもレート窓は消費される（VAR-13①・INF-11）")
 }
