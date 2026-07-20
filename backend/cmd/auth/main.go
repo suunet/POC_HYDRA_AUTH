@@ -62,11 +62,10 @@ func main() {
 	}
 
 	limiter := ratelimit.NewRegistrationLimiter(redisClient)
-	hmacSecret := os.Getenv("RATELIMIT_HMAC_SECRET")
-	if hmacSecret == "" {
-		hmacSecret = "local-dev-secret"
+	hmacSecret, weakHMAC := ratelimit.ResolveHMACSecret(os.Getenv("RATELIMIT_HMAC_SECRET"))
+	if weakHMAC {
 		// WARNING: 公知の開発用既定鍵。本番でこのログが出る構成は不可（INF-14の鍵秘匿が崩れる）
-		logger.WarnContext(ctx, "RATELIMIT_HMAC_SECRET未設定のため開発用既定鍵で起動します", "ctx", "bootstrap")
+		logger.WarnContext(ctx, "RATELIMIT_HMAC_SECRETが公知の開発用既定鍵です（未設定または既定鍵の明示設定）。本番では別の鍵を設定してください", "ctx", "bootstrap")
 	}
 	verifyLimiter := ratelimit.NewEmailVerifyLimiter(redisClient, []byte(hmacSecret))
 	resendLimiter := ratelimit.NewResendEmailLimiter(redisClient)
