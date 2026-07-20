@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -30,6 +31,18 @@ func (r *UserRepository) EmailExists(ctx context.Context, email string) (bool, e
 		return false, err
 	}
 	return true, nil
+}
+
+// NOTE: 未登録は found=false で返しエラーにしない（A1で沈黙200へ倒すため・呼び出し側でErrNoRows分岐を持たせない）
+func (r *UserRepository) FindUserByEmail(ctx context.Context, email string) (uuid.UUID, string, bool, error) {
+	row, err := dbmodels.New(r.db).GetUserByEmail(ctx, email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, "", false, nil
+	}
+	if err != nil {
+		return uuid.Nil, "", false, err
+	}
+	return row.UserUuid, row.Status, true, nil
 }
 
 // NOTE: user・role・tokenを単一トランザクションで登録する。afterInsertはコミット前（トランザクション内）で呼ばれ、エラーを返すと全体をロールバックする

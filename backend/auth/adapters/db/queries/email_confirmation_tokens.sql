@@ -24,15 +24,8 @@ SET used_at = now()
 WHERE token_uuid = $1
   AND used_at IS NULL;
 
--- name: GetActiveEmailConfirmationTokenByUser :one
-SELECT
-	token_uuid,
-	user_uuid,
-	token_hash,
-	expires_at,
-	used_at
-FROM auth.email_confirmation_tokens
+-- name: InvalidateActiveEmailConfirmationTokensByUser :execrows
+UPDATE auth.email_confirmation_tokens
+SET used_at = now()
 WHERE user_uuid = $1
-  AND used_at IS NULL
-ORDER BY created_at DESC
-LIMIT 1;
+  AND used_at IS NULL;

@@ -29,6 +29,26 @@ func (r *UserRepository) GetEmailConfirmationTokenByHash(ctx context.Context, ha
 	}, nil
 }
 
+// NOTE: 無効化を token_uuid 単位でなくユーザー単位の一括UPDATEにするのは、不変条件（有効トークン最大1本・INF-06/CND-10）が
+// 破れても残存有効トークンを取りこぼさないため。
+func (r *UserRepository) ReissueEmailConfirmationToken(ctx context.Context, userUUID uuid.UUID, token domain.EmailConfirmationToken, afterInsert func(context.Context) error) error {
+	return common.UpdateInTx(ctx, r.db, func(ctx context.Context, tx pgx.Tx) error {
+		q := dbmodels.New(tx)
+		if _, err := q.InvalidateActiveEmailConfirmationTokensByUser(ctx, userUUID); err != nil {
+			return err
+		}
+		if err := q.InsertEmailConfirmationToken(ctx, dbmodels.InsertEmailConfirmationTokenParams{
+			TokenUuid: token.TokenUUID,
+			UserUuid:  userUUID,
+			TokenHash: token.Hash,
+			ExpiresAt: token.ExpiresAt,
+		}); err != nil {
+			return err
+		}
+		return afterInsert(ctx)
+	})
+}
+
 func (r *UserRepository) ConsumeEmailConfirmationToken(ctx context.Context, tokenUUID, userUUID uuid.UUID) error {
 	return common.UpdateInTx(ctx, r.db, func(ctx context.Context, tx pgx.Tx) error {
 		q := dbmodels.New(tx)

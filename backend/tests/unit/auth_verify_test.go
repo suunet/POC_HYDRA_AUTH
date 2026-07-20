@@ -55,6 +55,7 @@ func newVerifyTestEchoWithLimiter(t *testing.T, repo *fakeTokenRepository, limit
 	apihttp.Register(e, apihttp.NewHandler(
 		command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer),
 		command.NewVerifyEmailHandler(repo, limiter),
+		command.NewResendEmailVerificationHandler(d.resendRepo, d.limiter, d.mailer),
 	))
 	return e
 }

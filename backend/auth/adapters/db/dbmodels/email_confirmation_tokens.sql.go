@@ -12,41 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const getActiveEmailConfirmationTokenByUser = `-- name: GetActiveEmailConfirmationTokenByUser :one
-SELECT
-	token_uuid,
-	user_uuid,
-	token_hash,
-	expires_at,
-	used_at
-FROM auth.email_confirmation_tokens
-WHERE user_uuid = $1
-  AND used_at IS NULL
-ORDER BY created_at DESC
-LIMIT 1
-`
-
-type GetActiveEmailConfirmationTokenByUserRow struct {
-	TokenUuid uuid.UUID
-	UserUuid  uuid.UUID
-	TokenHash string
-	ExpiresAt time.Time
-	UsedAt    *time.Time
-}
-
-func (q *Queries) GetActiveEmailConfirmationTokenByUser(ctx context.Context, userUuid uuid.UUID) (GetActiveEmailConfirmationTokenByUserRow, error) {
-	row := q.db.QueryRow(ctx, getActiveEmailConfirmationTokenByUser, userUuid)
-	var i GetActiveEmailConfirmationTokenByUserRow
-	err := row.Scan(
-		&i.TokenUuid,
-		&i.UserUuid,
-		&i.TokenHash,
-		&i.ExpiresAt,
-		&i.UsedAt,
-	)
-	return i, err
-}
-
 const getEmailConfirmationTokenByHash = `-- name: GetEmailConfirmationTokenByHash :one
 SELECT
 	token_uuid,
@@ -105,6 +70,21 @@ func (q *Queries) InsertEmailConfirmationToken(ctx context.Context, arg InsertEm
 		arg.ExpiresAt,
 	)
 	return err
+}
+
+const invalidateActiveEmailConfirmationTokensByUser = `-- name: InvalidateActiveEmailConfirmationTokensByUser :execrows
+UPDATE auth.email_confirmation_tokens
+SET used_at = now()
+WHERE user_uuid = $1
+  AND used_at IS NULL
+`
+
+func (q *Queries) InvalidateActiveEmailConfirmationTokensByUser(ctx context.Context, userUuid uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, invalidateActiveEmailConfirmationTokensByUser, userUuid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const markEmailConfirmationTokenUsed = `-- name: MarkEmailConfirmationTokenUsed :execrows

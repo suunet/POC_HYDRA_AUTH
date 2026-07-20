@@ -69,12 +69,14 @@ func main() {
 		logger.WarnContext(ctx, "RATELIMIT_HMAC_SECRET未設定のため開発用既定鍵で起動します", "ctx", "bootstrap")
 	}
 	verifyLimiter := ratelimit.NewEmailVerifyLimiter(redisClient, []byte(hmacSecret))
+	resendLimiter := ratelimit.NewResendEmailLimiter(redisClient)
 	mailer := mail.NewSMTPMailer(fmt.Sprintf("%s:%s", smtpHost, smtpPort), smtpFrom)
 
 	e, err := backend.BuildAuth(ctx, logger, auth.Deps{
 		PgxDb:         pool,
 		Limiter:       limiter,
 		VerifyLimiter: verifyLimiter,
+		ResendLimiter: resendLimiter,
 		Mailer:        mailer,
 	})
 	if err != nil {
