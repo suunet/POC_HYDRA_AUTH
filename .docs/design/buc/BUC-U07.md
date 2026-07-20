@@ -189,102 +189,102 @@ end note
 
 ```mermaid
 sequenceDiagram
-  actor ユーザー as ユーザー
-  participant リセット要求API as POST /auth/password-reset
-  participant ユースケース as PasswordResetRequestUseCase
-  participant ユーザーRepo as UserRepository (DB)
-  participant トークンRepo as PasswordResetTokenRepository (DB)
+  actor User as ユーザー
+  participant ResetRequestAPI as リセット要求API
+  participant UseCase as ユースケース
+  participant UserRepo as ユーザーRepo
+  participant ResetRepo as トークンRepo
   participant Redis as Redis
-  participant メールサーバー as メールサーバー
-  ユーザー->>リセット要求API: POST /auth/password-reset<br/>{ email }
-  リセット要求API->>ユースケース: requestReset(email)
-  ユースケース->>ユースケース: validateEmail(email)
+  participant MailServer as メールサーバー
+  User->>ResetRequestAPI: POST /auth/password-reset<br/>{ email }
+  ResetRequestAPI->>UseCase: requestReset(email)
+  UseCase->>UseCase: validateEmail(email)
   alt E1: メールアドレス形式不正
-  ユースケース-->>リセット要求API: ValidationError
-  リセット要求API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  UseCase-->>ResetRequestAPI: ValidationError
+  ResetRequestAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
   end
-  ユースケース->>Redis: checkRateLimit(email)
-  Redis-->>ユースケース: lastSentAt
+  UseCase->>Redis: checkRateLimit(email)
+  Redis-->>UseCase: lastSentAt
   alt E2: レートリミット超過（5分以内に送信済み）
-  ユースケース-->>リセット要求API: RateLimitExceededError
-  リセット要求API-->>ユーザー: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
+  UseCase-->>ResetRequestAPI: RateLimitExceededError
+  ResetRequestAPI-->>User: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
   end
-  ユースケース->>ユーザーRepo: findByEmail(email, excludeDeleted: true)
-  ユーザーRepo-->>ユースケース: result
-  ユースケース->>ユースケース: checkEligibility(user)<br/>（メール確認済み & 無効化済みでない）
+  UseCase->>UserRepo: findByEmail(email, excludeDeleted: true)
+  UserRepo-->>UseCase: result
+  UseCase->>UseCase: checkEligibility(user)<br/>（メール確認済み & 無効化済みでない）
   alt A1: ユーザー不存在 / メール未確認 / 無効化済み
-  ユースケース->>Redis: setRateLimit(email, TTL: 5min)
+  UseCase->>Redis: setRateLimit(email, TTL: 5min)
   Note right of Redis: レートリミット設定<br/>（ユーザー列挙攻撃対策）
-  ユースケース-->>リセット要求API: success
-  リセット要求API-->>ユーザー: 200 OK
+  UseCase-->>ResetRequestAPI: success
+  ResetRequestAPI-->>User: 200 OK
   end
-  ユースケース->>ユースケース: generateResetToken<br/>(expires: 30min)
-  ユースケース->>トークンRepo: save(resetToken{ userId, expiresAt })
-  トークンRepo-->>ユースケース: savedToken
-  ユースケース->>メールサーバー: sendResetEmail(email, token)
+  UseCase->>UseCase: generateResetToken<br/>(expires: 30min)
+  UseCase->>ResetRepo: save(resetToken{ userId, expiresAt })
+  ResetRepo-->>UseCase: savedToken
+  UseCase->>MailServer: sendResetEmail(email, token)
   alt E3: メール送信失敗
-  Note right of メールサーバー: ERROR ログ<br/>{ ctx: "password_reset_request",<br/>msg: "リセットメール送信失敗" }<br/>ロールバック: トークンDB保存を取消
-  ユースケース->>トークンRepo: delete(savedToken)
-  ユースケース-->>リセット要求API: InternalError
-  リセット要求API-->>ユーザー: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error
+  Note right of MailServer: ERROR ログ<br/>{ ctx: "password_reset_request",<br/>msg: "リセットメール送信失敗" }<br/>ロールバック: トークンDB保存を取消
+  UseCase->>ResetRepo: delete(savedToken)
+  UseCase-->>ResetRequestAPI: InternalError
+  ResetRequestAPI-->>User: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error
   end
-  メールサーバー-->>ユースケース: sent
-  ユースケース->>Redis: setRateLimit(email, TTL: 5min)
-  ユースケース-->>リセット要求API: success
-  リセット要求API-->>ユーザー: 200 OK
+  MailServer-->>UseCase: sent
+  UseCase->>Redis: setRateLimit(email, TTL: 5min)
+  UseCase-->>ResetRequestAPI: success
+  ResetRequestAPI-->>User: 200 OK
 ```
 
 ### フェーズ2: リセット完了
 
 ```mermaid
 sequenceDiagram
-  actor ユーザー as ユーザー
-  participant リセット完了API as POST /auth/password-reset/confirm
-  participant ユースケース as PasswordResetConfirmUseCase
-  participant トークンRepo as PasswordResetTokenRepository (DB)
-  participant ユーザーRepo as UserRepository (DB)
-  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
-  ユーザー->>リセット完了API: POST /auth/password-reset/confirm<br/>{ token, newPassword }
-  リセット完了API->>ユースケース: confirmReset(token, newPassword)
-  ユースケース->>ユースケース: validatePasswordStrength<br/>(newPassword)
+  actor User as ユーザー
+  participant ResetConfirmAPI as リセット完了API
+  participant UseCase as ユースケース
+  participant ResetRepo as トークンRepo
+  participant UserRepo as ユーザーRepo
+  participant RefreshRepo as リフレッシュトークンRepo
+  User->>ResetConfirmAPI: POST /auth/password-reset/confirm<br/>{ token, newPassword }
+  ResetConfirmAPI->>UseCase: confirmReset(token, newPassword)
+  UseCase->>UseCase: validatePasswordStrength<br/>(newPassword)
   alt E4: パスワード強度不足
-  ユースケース-->>リセット完了API: ValidationError
-  リセット完了API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  UseCase-->>ResetConfirmAPI: ValidationError
+  ResetConfirmAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
   end
-  ユースケース->>トークンRepo: findByToken(token)
-  トークンRepo-->>ユースケース: result
+  UseCase->>ResetRepo: findByToken(token)
+  ResetRepo-->>UseCase: result
   alt E5: トークンが存在しない
-  ユースケース-->>リセット完了API: InvalidTokenError
-  リセット完了API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
+  UseCase-->>ResetConfirmAPI: InvalidTokenError
+  ResetConfirmAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
   end
-  ユースケース->>ユースケース: checkAlreadyUsed(token)
+  UseCase->>UseCase: checkAlreadyUsed(token)
   alt E6: トークンが使用済み
-  ユースケース-->>リセット完了API: InvalidTokenError
-  リセット完了API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
+  UseCase-->>ResetConfirmAPI: InvalidTokenError
+  ResetConfirmAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
   end
-  ユースケース->>ユースケース: checkExpiry(token)
+  UseCase->>UseCase: checkExpiry(token)
   alt E7: リセットトークン有効期限切れ
-  ユースケース->>トークンRepo: markAsExpired(token)
-  ユースケース-->>リセット完了API: TokenExpiredError
-  リセット完了API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../token-expired
+  UseCase->>ResetRepo: markAsExpired(token)
+  UseCase-->>ResetConfirmAPI: TokenExpiredError
+  ResetConfirmAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../token-expired
   end
-  ユースケース->>ユースケース: bcrypt hash(newPassword)
+  UseCase->>UseCase: bcrypt hash(newPassword)
   critical トランザクション ステップ16〜18
-  ユースケース->>ユーザーRepo: updatePassword(token.userId, hashedPassword)
-  ユーザーRepo-->>ユースケース: updated
-  ユースケース->>トークンRepo: markAsUsed(token)
-  トークンRepo-->>ユースケース: updated
-  ユースケース->>リフレッシュトークンRepo: revokeAllByUserId<br/>(token.userId, reason: password_changed)
-  リフレッシュトークンRepo-->>ユースケース: revokedCount
+  UseCase->>UserRepo: updatePassword(token.userId, hashedPassword)
+  UserRepo-->>UseCase: updated
+  UseCase->>ResetRepo: markAsUsed(token)
+  ResetRepo-->>UseCase: updated
+  UseCase->>RefreshRepo: revokeAllByUserId<br/>(token.userId, reason: password_changed)
+  RefreshRepo-->>UseCase: revokedCount
   end
   alt E8: トランザクション失敗
-  Note right of ユースケース: ERROR ログ<br/>{ ctx: "password_reset_confirm",<br/>msg: "パスワードリセットトランザクション失敗" }<br/>ロールバック: 全操作を取消
-  ユースケース-->>リセット完了API: InternalError
-  リセット完了API-->>ユーザー: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
+  Note right of UseCase: ERROR ログ<br/>{ ctx: "password_reset_confirm",<br/>msg: "パスワードリセットトランザクション失敗" }<br/>ロールバック: 全操作を取消
+  UseCase-->>ResetConfirmAPI: InternalError
+  ResetConfirmAPI-->>User: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
   end
-  Note right of ユーザー: INFO 監査ログ<br/>{ ctx: "password_reset_confirm", msg: "パスワードリセット" }
-  ユースケース-->>リセット完了API: success
-  リセット完了API-->>ユーザー: 200 OK
+  Note right of User: INFO 監査ログ<br/>{ ctx: "password_reset_confirm", msg: "パスワードリセット" }
+  UseCase-->>ResetConfirmAPI: success
+  ResetConfirmAPI-->>User: 200 OK
 ```
 
 ---

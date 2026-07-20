@@ -86,28 +86,28 @@ entity "RefreshTokenRepository" as リフレッシュトークンRepo
 
 ```mermaid
 sequenceDiagram
-  actor 管理者 as 管理者
-  participant 失効API as POST /admin/tokens/revoke
-  participant ユースケース as TokenRevocationUseCase
-  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
-  管理者->>失効API: POST /admin/tokens/revoke<br/>{ refreshTokenId }<br/>[Authorization: Bearer <accessToken>]
-  失効API->>ユースケース: revoke(refreshTokenId)
-  ユースケース->>リフレッシュトークンRepo: findById(refreshTokenId)
-  リフレッシュトークンRepo-->>ユースケース: result
+  actor Admin as 管理者
+  participant RevokeAPI as 失効API
+  participant UseCase as ユースケース
+  participant RefreshRepo as リフレッシュトークンRepo
+  Admin->>RevokeAPI: POST /admin/tokens/revoke<br/>{ refreshTokenId }<br/>[Authorization: Bearer <accessToken>]
+  RevokeAPI->>UseCase: revoke(refreshTokenId)
+  UseCase->>RefreshRepo: findById(refreshTokenId)
+  RefreshRepo-->>UseCase: result
   alt E1: トークンが存在しない
-  ユースケース-->>失効API: TokenNotFoundError
-  失効API-->>管理者: 404 Not Found<br/>application/problem+json<br/>type: .../token-not-found
+  UseCase-->>RevokeAPI: TokenNotFoundError
+  RevokeAPI-->>Admin: 404 Not Found<br/>application/problem+json<br/>type: .../token-not-found
   end
-  ユースケース->>ユースケース: checkTokenStatus(token)
+  UseCase->>UseCase: checkTokenStatus(token)
   alt E2: 既に失効済み
-  ユースケース-->>失効API: TokenAlreadyRevokedError
-  失効API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../token-already-revoked
+  UseCase-->>RevokeAPI: TokenAlreadyRevokedError
+  RevokeAPI-->>Admin: 409 Conflict<br/>application/problem+json<br/>type: .../token-already-revoked
   end
-  ユースケース->>リフレッシュトークンRepo: revoke(token, reason: forced_revocation)
-  リフレッシュトークンRepo-->>ユースケース: updated
-  Note right of ユースケース: INFO 監査ログ<br/>{ ctx: "token_revocation", msg: "トークン強制失効" }
-  ユースケース-->>失効API: success
-  失効API-->>管理者: 200 OK<br/>{ revocation_reason: forced_revocation }
+  UseCase->>RefreshRepo: revoke(token, reason: forced_revocation)
+  RefreshRepo-->>UseCase: updated
+  Note right of UseCase: INFO 監査ログ<br/>{ ctx: "token_revocation", msg: "トークン強制失効" }
+  UseCase-->>RevokeAPI: success
+  RevokeAPI-->>Admin: 200 OK<br/>{ revocation_reason: forced_revocation }
 ```
 
 ---

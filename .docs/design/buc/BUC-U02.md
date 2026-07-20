@@ -95,35 +95,35 @@ entity "UserRepository" as ユーザーRepo
 
 ```mermaid
 sequenceDiagram
-  actor ユーザー as ユーザー
-  participant 確認API as POST /auth/email-verify
-  participant ユースケース as EmailVerificationUseCase
-  participant レート制限 as EmailVerifyRateLimiter (Redis)
-  participant 確認トークンRepo as EmailConfirmTokenRepository (DB)
-  participant ユーザーRepo as UserRepository (DB)
-  ユーザー->>確認API: POST /auth/email-verify<br/>{ token }
-  確認API->>ユースケース: verify(token)
-  ユースケース->>レート制限: IPレート判定・記録（VAR-17）
+  actor User as ユーザー
+  participant VerifyAPI as 確認API
+  participant UseCase as ユースケース
+  participant RateLimiter as レート制限
+  participant TokenRepo as 確認トークンRepo
+  participant UserRepo as ユーザーRepo
+  User->>VerifyAPI: POST /auth/email-verify<br/>{ token }
+  VerifyAPI->>UseCase: verify(token)
+  UseCase->>RateLimiter: IPレート判定・記録（VAR-17）
   alt レートリミット超過
-  ユースケース-->>確認API: RateLimitedError
-  確認API-->>ユーザー: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
+  UseCase-->>VerifyAPI: RateLimitedError
+  VerifyAPI-->>User: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
   end
-  ユースケース->>確認トークンRepo: findByToken(token)
-  確認トークンRepo-->>ユースケース: result
+  UseCase->>TokenRepo: findByToken(token)
+  TokenRepo-->>UseCase: result
   alt トークンが存在しない・使用済み
-  ユースケース-->>確認API: InvalidTokenError
-  確認API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
+  UseCase-->>VerifyAPI: InvalidTokenError
+  VerifyAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../invalid-token
   end
-  ユースケース->>ユースケース: validateExpiry(token)
+  UseCase->>UseCase: validateExpiry(token)
   alt トークンが有効期限切れ
-  ユースケース-->>確認API: TokenExpiredError
-  確認API-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../token-expired
+  UseCase-->>VerifyAPI: TokenExpiredError
+  VerifyAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../token-expired
   end
-  ユースケース->>確認トークンRepo: markAsUsed(token)
-  ユースケース->>ユーザーRepo: updateStatus(user{ status: "未認証" })
-  ユーザーRepo-->>ユースケース: ok
-  ユースケース-->>確認API: success
-  確認API-->>ユーザー: 200 OK
+  UseCase->>TokenRepo: markAsUsed(token)
+  UseCase->>UserRepo: updateStatus(user{ status: "未認証" })
+  UserRepo-->>UseCase: ok
+  UseCase-->>VerifyAPI: success
+  VerifyAPI-->>User: 200 OK
 ```
 
 ---

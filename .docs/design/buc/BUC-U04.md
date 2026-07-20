@@ -132,65 +132,65 @@ entity "Redis" as Redis
 
 ```mermaid
 sequenceDiagram
-  actor ユーザー as ユーザー
-  participant ログインAPI as POST /auth/login
-  participant ユースケース as LoginUseCase
-  participant ユーザーRepo as UserRepository (DB)
-  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
+  actor User as ユーザー
+  participant LoginAPI as ログインAPI
+  participant UseCase as ユースケース
+  participant UserRepo as ユーザーRepo
+  participant RefreshRepo as リフレッシュトークンRepo
   participant Redis as Redis
-  ユーザー->>ログインAPI: POST /auth/login<br/>{ email, password }
-  ログインAPI->>ユースケース: login(email, password)
-  ユースケース->>ユースケース: validateEmail(email)
+  User->>LoginAPI: POST /auth/login<br/>{ email, password }
+  LoginAPI->>UseCase: login(email, password)
+  UseCase->>UseCase: validateEmail(email)
   alt E1: メールアドレス形式バリデーション失敗
-  ユースケース-->>ログインAPI: ValidationError
-  ログインAPI-->>ユーザー: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  UseCase-->>LoginAPI: ValidationError
+  LoginAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
   end
-  ユースケース->>Redis: checkLockout(email)
-  Redis-->>ユースケース: lockoutStatus
+  UseCase->>Redis: checkLockout(email)
+  Redis-->>UseCase: lockoutStatus
   alt E2: ロックアウト中
-  ユースケース-->>ログインAPI: AccountLockedError
-  ログインAPI-->>ユーザー: 429 Too Many Requests<br/>application/problem+json<br/>type: .../account-locked<br/>error_code: account_locked<br/>retry_after: <解除時刻>
+  UseCase-->>LoginAPI: AccountLockedError
+  LoginAPI-->>User: 429 Too Many Requests<br/>application/problem+json<br/>type: .../account-locked<br/>error_code: account_locked<br/>retry_after: <解除時刻>
   end
-  ユースケース->>ユーザーRepo: findByEmail(email, excludeDeleted: true)
-  ユーザーRepo-->>ユースケース: result
+  UseCase->>UserRepo: findByEmail(email, excludeDeleted: true)
+  UserRepo-->>UseCase: result
   alt E3: ユーザーが存在しない
-  ユースケース->>ユースケース: bcrypt dummy verify()<br/>（timing attack対策）
-  ユースケース->>Redis: incrementFailureCount(email)
+  UseCase->>UseCase: bcrypt dummy verify()<br/>（timing attack対策）
+  UseCase->>Redis: incrementFailureCount(email)
   alt 失敗回数が10回に到達
-  ユースケース->>Redis: setLockout(email, TTL: 15min)
+  UseCase->>Redis: setLockout(email, TTL: 15min)
   end
   Note right of Redis: WARNING 監査ログ<br/>{ ctx: "login", msg: "ログイン失敗" }
-  ユースケース-->>ログインAPI: AuthenticationFailedError
-  ログインAPI-->>ユーザー: 401 Unauthorized<br/>application/problem+json<br/>type: .../authentication-failed
+  UseCase-->>LoginAPI: AuthenticationFailedError
+  LoginAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../authentication-failed
   end
-  ユースケース->>ユースケース: bcrypt verify(password, user.hashedPassword)
+  UseCase->>UseCase: bcrypt verify(password, user.hashedPassword)
   alt E4: パスワード不一致
-  ユースケース->>Redis: incrementFailureCount(email)
+  UseCase->>Redis: incrementFailureCount(email)
   alt 失敗回数が10回に到達
-  ユースケース->>Redis: setLockout(email, TTL: 15min)
+  UseCase->>Redis: setLockout(email, TTL: 15min)
   end
   Note right of Redis: WARNING 監査ログ<br/>{ ctx: "login", msg: "ログイン失敗" }
-  ユースケース-->>ログインAPI: AuthenticationFailedError
-  ログインAPI-->>ユーザー: 401 Unauthorized<br/>application/problem+json<br/>type: .../authentication-failed
+  UseCase-->>LoginAPI: AuthenticationFailedError
+  LoginAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../authentication-failed
   end
-  ユースケース->>ユースケース: checkEmailVerified(user)
+  UseCase->>UseCase: checkEmailVerified(user)
   alt E5: メール未確認
-  ユースケース-->>ログインAPI: EmailNotVerifiedError
-  ログインAPI-->>ユーザー: 403 Forbidden<br/>application/problem+json<br/>type: .../email-not-verified
+  UseCase-->>LoginAPI: EmailNotVerifiedError
+  LoginAPI-->>User: 403 Forbidden<br/>application/problem+json<br/>type: .../email-not-verified
   end
-  ユースケース->>ユースケース: checkAccountStatus(user)
+  UseCase->>UseCase: checkAccountStatus(user)
   alt E6: アカウント無効化済み
-  ユースケース-->>ログインAPI: AccountDisabledError
-  ログインAPI-->>ユーザー: 403 Forbidden<br/>application/problem+json<br/>type: .../account-disabled
+  UseCase-->>LoginAPI: AccountDisabledError
+  LoginAPI-->>User: 403 Forbidden<br/>application/problem+json<br/>type: .../account-disabled
   end
-  ユースケース->>Redis: resetFailureCount(email)
-  ユースケース->>ユースケース: generateAccessToken<br/>(JWT RS256, { sub: user.id, roles: user.roles })
-  ユースケース->>ユースケース: generateRefreshToken()
-  ユースケース->>リフレッシュトークンRepo: save(refreshToken{ user_id, expires_at })
-  リフレッシュトークンRepo-->>ユースケース: savedToken
-  Note right of ユースケース: INFO 監査ログ<br/>{ ctx: "login", msg: "ログイン成功" }
-  ユースケース-->>ログインAPI: success
-  ログインAPI-->>ユーザー: 200 OK<br/>{ accessToken, refreshToken }
+  UseCase->>Redis: resetFailureCount(email)
+  UseCase->>UseCase: generateAccessToken<br/>(JWT RS256, { sub: user.id, roles: user.roles })
+  UseCase->>UseCase: generateRefreshToken()
+  UseCase->>RefreshRepo: save(refreshToken{ user_id, expires_at })
+  RefreshRepo-->>UseCase: savedToken
+  Note right of UseCase: INFO 監査ログ<br/>{ ctx: "login", msg: "ログイン成功" }
+  UseCase-->>LoginAPI: success
+  LoginAPI-->>User: 200 OK<br/>{ accessToken, refreshToken }
 ```
 
 ---

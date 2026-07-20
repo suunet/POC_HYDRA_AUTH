@@ -123,56 +123,56 @@ entity "RefreshTokenRepository" as リフレッシュトークンRepo
 
 ```mermaid
 sequenceDiagram
-  actor 管理者 as 管理者 (super_admin)
-  participant ロール変更API as PUT /admin/accounts/ :userId/role
-  participant ユースケース as RoleChangeUseCase
-  participant ユーザーRepo as UserRepository (DB)
-  participant リフレッシュトークンRepo as RefreshTokenRepository (DB)
-  管理者->>ロール変更API: PUT /admin/accounts/:userId/role<br/>{ newRole }<br/>[Authorization: Bearer <accessToken>]
-  ロール変更API->>ユースケース: changeRole(operatorId, targetUserId, newRole)
-  ユースケース->>ユーザーRepo: findById(targetUserId, excludeDeletedAndDisabled: true)
-  ユーザーRepo-->>ユースケース: result
+  actor Admin as 管理者 (super_admin)
+  participant RoleChangeAPI as ロール変更API
+  participant UseCase as ユースケース
+  participant UserRepo as ユーザーRepo
+  participant RefreshRepo as リフレッシュトークンRepo
+  Admin->>RoleChangeAPI: PUT /admin/accounts/:userId/role<br/>{ newRole }<br/>[Authorization: Bearer <accessToken>]
+  RoleChangeAPI->>UseCase: changeRole(operatorId, targetUserId, newRole)
+  UseCase->>UserRepo: findById(targetUserId, excludeDeletedAndDisabled: true)
+  UserRepo-->>UseCase: result
   alt E1: ユーザーが存在しない
-  ユースケース-->>ロール変更API: UserNotFoundError
-  ロール変更API-->>管理者: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
+  UseCase-->>RoleChangeAPI: UserNotFoundError
+  RoleChangeAPI-->>Admin: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
   end
-  ユースケース->>ユースケース: validateRole(newRole)
+  UseCase->>UseCase: validateRole(newRole)
   alt E2: 無効なロール指定
-  ユースケース-->>ロール変更API: ValidationError
-  ロール変更API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
+  UseCase-->>RoleChangeAPI: ValidationError
+  RoleChangeAPI-->>Admin: 400 Bad Request<br/>application/problem+json<br/>type: .../validation-error
   end
-  ユースケース->>ユースケース: checkRoleChanged(user.role, newRole)
+  UseCase->>UseCase: checkRoleChanged(user.role, newRole)
   alt E3: 現在のロールと同一
-  ユースケース-->>ロール変更API: RoleUnchangedError
-  ロール変更API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../role-unchanged
+  UseCase-->>RoleChangeAPI: RoleUnchangedError
+  RoleChangeAPI-->>Admin: 409 Conflict<br/>application/problem+json<br/>type: .../role-unchanged
   end
-  ユースケース->>ユースケース: checkSelfDemotion<br/>(operatorId, targetUserId, newRole)
+  UseCase->>UseCase: checkSelfDemotion<br/>(operatorId, targetUserId, newRole)
   alt E4: super_admin の自己降格
-  ユースケース-->>ロール変更API: SelfDemotionForbiddenError
-  ロール変更API-->>管理者: 403 Forbidden<br/>application/problem+json<br/>type: .../self-demotion-forbidden
+  UseCase-->>RoleChangeAPI: SelfDemotionForbiddenError
+  RoleChangeAPI-->>Admin: 403 Forbidden<br/>application/problem+json<br/>type: .../self-demotion-forbidden
   end
   opt super_admin からの降格
-  ユースケース->>ユーザーRepo: countSuperAdmins()
-  ユーザーRepo-->>ユースケース: count
+  UseCase->>UserRepo: countSuperAdmins()
+  UserRepo-->>UseCase: count
   alt E5: super_admin が1人のみ
-  ユースケース-->>ロール変更API: LastSuperAdminError
-  ロール変更API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../last-super-admin
+  UseCase-->>RoleChangeAPI: LastSuperAdminError
+  RoleChangeAPI-->>Admin: 409 Conflict<br/>application/problem+json<br/>type: .../last-super-admin
   end
   end
   critical トランザクション ステップ7〜8
-  ユースケース->>ユーザーRepo: updateRole(targetUserId, newRole)
-  ユーザーRepo-->>ユースケース: updated
-  ユースケース->>リフレッシュトークンRepo: revokeAllByUserId<br/>(targetUserId, reason: role_changed)
-  リフレッシュトークンRepo-->>ユースケース: revokedCount
+  UseCase->>UserRepo: updateRole(targetUserId, newRole)
+  UserRepo-->>UseCase: updated
+  UseCase->>RefreshRepo: revokeAllByUserId<br/>(targetUserId, reason: role_changed)
+  RefreshRepo-->>UseCase: revokedCount
   end
   alt E6: トランザクション失敗
-  Note right of ユースケース: ERROR ログ<br/>{ ctx: "role_change",<br/>msg: "ロール変更トランザクション失敗" }<br/>ロールバック: 全操作を取消
-  ユースケース-->>ロール変更API: InternalError
-  ロール変更API-->>管理者: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
+  Note right of UseCase: ERROR ログ<br/>{ ctx: "role_change",<br/>msg: "ロール変更トランザクション失敗" }<br/>ロールバック: 全操作を取消
+  UseCase-->>RoleChangeAPI: InternalError
+  RoleChangeAPI-->>Admin: 500 Internal Server Error<br/>application/problem+json<br/>type: .../internal-error
   end
-  Note right of 管理者: INFO 監査ログ<br/>{ ctx: "role_change", msg: "ロール変更" }
-  ユースケース-->>ロール変更API: success
-  ロール変更API-->>管理者: 200 OK<br/>{ revocation_reason: role_changed }
+  Note right of Admin: INFO 監査ログ<br/>{ ctx: "role_change", msg: "ロール変更" }
+  UseCase-->>RoleChangeAPI: success
+  RoleChangeAPI-->>Admin: 200 OK<br/>{ revocation_reason: role_changed }
 ```
 
 ---

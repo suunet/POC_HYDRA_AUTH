@@ -94,32 +94,32 @@ entity "UserRepository" as ユーザーRepo
 
 ```mermaid
 sequenceDiagram
-  actor 管理者 as 管理者 (super_admin)
-  participant 再有効化API as POST /admin/accounts/ :userId/reactivate
-  participant ユースケース as AccountReactivateUseCase
-  participant ユーザーRepo as UserRepository (DB)
-  管理者->>再有効化API: POST /admin/accounts/:userId/reactivate<br/>[Authorization: Bearer <accessToken>]
-  再有効化API->>ユースケース: reactivate(userId)
-  ユースケース->>ユーザーRepo: findById(userId, excludeDeleted: true)
-  ユーザーRepo-->>ユースケース: result
+  actor Admin as 管理者 (super_admin)
+  participant ReactivateAPI as 再有効化API
+  participant UseCase as ユースケース
+  participant UserRepo as ユーザーRepo
+  Admin->>ReactivateAPI: POST /admin/accounts/:userId/reactivate<br/>[Authorization: Bearer <accessToken>]
+  ReactivateAPI->>UseCase: reactivate(userId)
+  UseCase->>UserRepo: findById(userId, excludeDeleted: true)
+  UserRepo-->>UseCase: result
   alt E1: ユーザーが存在しない
-  ユースケース-->>再有効化API: UserNotFoundError
-  再有効化API-->>管理者: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
+  UseCase-->>ReactivateAPI: UserNotFoundError
+  ReactivateAPI-->>Admin: 404 Not Found<br/>application/problem+json<br/>type: .../user-not-found
   end
-  ユースケース->>ユースケース: checkAdminRole(user)
+  UseCase->>UseCase: checkAdminRole(user)
   alt E2: 管理者ロール未保持
-  ユースケース-->>再有効化API: NotAdminAccountError
-  再有効化API-->>管理者: 400 Bad Request<br/>application/problem+json<br/>type: .../not-admin-account
+  UseCase-->>ReactivateAPI: NotAdminAccountError
+  ReactivateAPI-->>Admin: 400 Bad Request<br/>application/problem+json<br/>type: .../not-admin-account
   end
-  ユースケース->>ユースケース: checkDisabled(user)
+  UseCase->>UseCase: checkDisabled(user)
   alt E3: 無効化されていない
-  ユースケース-->>再有効化API: AccountNotDisabledError
-  再有効化API-->>管理者: 409 Conflict<br/>application/problem+json<br/>type: .../account-not-disabled
+  UseCase-->>ReactivateAPI: AccountNotDisabledError
+  ReactivateAPI-->>Admin: 409 Conflict<br/>application/problem+json<br/>type: .../account-not-disabled
   end
-  ユースケース->>ユーザーRepo: reactivate(userId)
-  ユーザーRepo-->>ユースケース: updated
-  ユースケース-->>再有効化API: success
-  再有効化API-->>管理者: 200 OK
+  UseCase->>UserRepo: reactivate(userId)
+  UserRepo-->>UseCase: updated
+  UseCase-->>ReactivateAPI: success
+  ReactivateAPI-->>Admin: 200 OK
 ```
 
 ---

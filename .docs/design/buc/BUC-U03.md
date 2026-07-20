@@ -110,40 +110,40 @@ end note
 
 ```mermaid
 sequenceDiagram
-  actor ユーザー as ユーザー
-  participant 再送信API as POST /auth/email-verify/resend
-  participant ユースケース as EmailConfirmTokenResendUseCase
-  participant ユーザーRepo as UserRepository (DB)
-  participant 確認トークンRepo as EmailConfirmTokenRepository (DB)
+  actor User as ユーザー
+  participant ResendAPI as 再送信API
+  participant UseCase as ユースケース
+  participant UserRepo as ユーザーRepo
+  participant TokenRepo as 確認トークンRepo
   participant Redis as Redis
-  participant メールサーバー as メールサーバー
-  ユーザー->>再送信API: POST /auth/email-verify/resend<br/>{ email }
-  再送信API->>ユースケース: resend(email)
-  ユースケース->>Redis: レート確認・記録（VAR-13・最初・一様・チェック時記録）
+  participant MailServer as メールサーバー
+  User->>ResendAPI: POST /auth/email-verify/resend<br/>{ email }
+  ResendAPI->>UseCase: resend(email)
+  UseCase->>Redis: レート確認・記録（VAR-13・最初・一様・チェック時記録）
   alt レートリミット超過（E1・TTL 5分以内）
-  ユースケース-->>再送信API: RateLimitExceededError
-  再送信API-->>ユーザー: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
+  UseCase-->>ResendAPI: RateLimitExceededError
+  ResendAPI-->>User: 429 Too Many Requests<br/>application/problem+json<br/>type: .../rate-limit-exceeded
   end
-  ユースケース->>ユーザーRepo: findByEmail(email)
-  ユーザーRepo-->>ユースケース: user
+  UseCase->>UserRepo: findByEmail(email)
+  UserRepo-->>UseCase: user
   alt 未登録 または mail_unverified以外（A1/A2・列挙攻撃対策）
-  Note right of ユースケース: メール送信を行わず<br/>成功扱いで返す
-  ユースケース-->>再送信API: success
-  再送信API-->>ユーザー: 200 OK
+  Note right of UseCase: メール送信を行わず<br/>成功扱いで返す
+  UseCase-->>ResendAPI: success
+  ResendAPI-->>User: 200 OK
   end
-  ユースケース->>確認トークンRepo: invalidateExisting(email)
-  ユースケース->>確認トークンRepo: save(emailConfirmToken{ expires_at: +24h })
-  確認トークンRepo-->>ユースケース: token
-  ユースケース->>メールサーバー: sendConfirmEmail(token)
+  UseCase->>TokenRepo: invalidateExisting(email)
+  UseCase->>TokenRepo: save(emailConfirmToken{ expires_at: +24h })
+  TokenRepo-->>UseCase: token
+  UseCase->>MailServer: sendConfirmEmail(token)
   alt メール送信失敗
-  メールサーバー-->>ユースケース: error
-  ユースケース->>確認トークンRepo: rollback()<br/>（新トークン保存・既存トークン無効化を含むトランザクション全体）
-  ユースケース-->>再送信API: MailDeliveryError
-  Note right of 再送信API: { ctx: "email_confirm_token_resend", msg: "メール送信失敗", lvl: "ERROR" }
-  再送信API-->>ユーザー: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error（レート窓は消費したまま）
+  MailServer-->>UseCase: error
+  UseCase->>TokenRepo: rollback()<br/>（新トークン保存・既存トークン無効化を含むトランザクション全体）
+  UseCase-->>ResendAPI: MailDeliveryError
+  Note right of ResendAPI: { ctx: "email_confirm_token_resend", msg: "メール送信失敗", lvl: "ERROR" }
+  ResendAPI-->>User: 503 Service Unavailable<br/>application/problem+json<br/>type: .../mail-delivery-error（レート窓は消費したまま）
   end
-  ユースケース-->>再送信API: success
-  再送信API-->>ユーザー: 200 OK
+  UseCase-->>ResendAPI: success
+  ResendAPI-->>User: 200 OK
 ```
 
 ---
