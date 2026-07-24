@@ -60,7 +60,7 @@ func TestUC004_Resend_RealServer_Unverified_InvalidatesOldAndSendsNew(t *testing
 	}
 	require.NotEmpty(t, newToken, "新トークンがメール送信される")
 	assert.NotEqual(t, oldPlain, newToken)
-	assert.Equal(t, "mail_unverified", userStatus(t, ctx, email), "STM-01: 状態は遷移しない")
+	assert.Equal(t, domain.StatusMailUnverified, userStatus(t, ctx, email), "STM-01: 状態は遷移しない")
 }
 
 // UC-004: A1 — 未登録は200・メール送信なし
