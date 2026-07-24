@@ -9,8 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const StatusInactive = "inactive" // STM-01.未認証（UC-003完了後）
-
 // VAR-17: メール確認レートリミット（IP単位・1分に10回）
 const (
 	EmailVerifyRateLimitWindow = time.Minute

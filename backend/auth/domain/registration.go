@@ -13,10 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	StatusMailUnverified = "mail_unverified"
-)
-
 const RoleUser = "user"
 
 const (
