@@ -82,7 +82,7 @@ entity "UserRepository" as ユーザーRepo
 ユースケース --> 確認トークンRepo : findByToken(token)
 ユースケース --> ユースケース : validateExpiry(token)
 ユースケース --> 確認トークンRepo : markAsUsed(token)
-ユースケース --> ユーザーRepo : updateStatus(user{ status: "未認証" })
+ユースケース --> ユーザーRepo : updateStatus(user{ status: inactive })
 
 確認API <-- ユースケース : 200 OK
 
@@ -120,7 +120,7 @@ sequenceDiagram
   VerifyAPI-->>User: 400 Bad Request<br/>application/problem+json<br/>type: .../token-expired
   end
   UseCase->>TokenRepo: markAsUsed(token)
-  UseCase->>UserRepo: updateStatus(user{ status: "未認証" })
+  UseCase->>UserRepo: updateStatus(user{ status: inactive })
   UserRepo-->>UseCase: ok
   UseCase-->>VerifyAPI: success
   VerifyAPI-->>User: 200 OK

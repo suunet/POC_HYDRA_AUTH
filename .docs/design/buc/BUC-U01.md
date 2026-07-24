@@ -107,7 +107,7 @@ note right of ユースケース
 end note
 
 ユースケース --> ハッシュ化 : hash(password)
-ユースケース --> ユーザーRepo : save(user{ status: email_unverified, role: user })
+ユースケース --> ユーザーRepo : save(user{ status: mail_unverified, role: user })
 ユースケース --> トークン生成 : generateEmailConfirmToken()
 ユースケース --> 確認トークンRepo : save(token{ expires_at: +24h })
 ユースケース --> メールサーバー : sendConfirmEmail(token)
@@ -151,7 +151,7 @@ sequenceDiagram
   UserRepo-->>UseCase: result
   alt メールアドレス未登録
   UseCase->>UseCase: bcrypt hash(password)
-  UseCase->>UserRepo: save(user{ status: email_unverified, role: user })
+  UseCase->>UserRepo: save(user{ status: mail_unverified, role: user })
   UserRepo-->>UseCase: savedUser
   UseCase->>TokenRepo: save(emailConfirmToken{ expires_at: +24h })
   TokenRepo-->>UseCase: token

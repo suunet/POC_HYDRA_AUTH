@@ -102,7 +102,7 @@ entity "UserRepository" as ユーザーRepo
 ユースケース --> ユースケース : checkNotUsed(token)
 ユースケース --> ユースケース : checkExpiry(token)
 ユースケース --> ハッシュ化 : hash(password)
-ユースケース --> ユーザーRepo : create(user{ email, hashedPassword, status: verified, role: token.role })
+ユースケース --> ユーザーRepo : create(user{ email, hashedPassword, status: inactive, role: token.role })
 ユースケース --> 招待トークンRepo : markAsUsed(token)
 
 招待受付API <-- ユースケース : 200 OK
@@ -147,7 +147,7 @@ sequenceDiagram
   end
   UseCase->>UseCase: bcrypt hash(password)
   critical トランザクション ステップ7〜8
-  UseCase->>UserRepo: create(user{ email: token.email,<br/>hashedPassword, status: verified,<br/>role: token.role })
+  UseCase->>UserRepo: create(user{ email: token.email,<br/>hashedPassword, status: inactive,<br/>role: token.role })
   UserRepo-->>UseCase: createdUser
   UseCase->>InviteRepo: markAsUsed(token)
   InviteRepo-->>UseCase: updated

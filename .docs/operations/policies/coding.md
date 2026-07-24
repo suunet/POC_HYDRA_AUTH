@@ -38,6 +38,8 @@
 ## テスト
 
 - テスト名（またはテスト直上のコメント）に対応するユースケースID `UC-NNN` を含める。`grep UC-NNN` でUC仕様からテストまで辿れる状態を保つ
+- UCを持たない基盤テスト（DB制約検証等）は、NFR-ID または カタログID（STM-NN/INF-NN）の参照で代替可（例: `backend/tests/component/users_status_check_test.go` の `STM-01/INF-01`。VAR-NN 等への拡張は必要になった時点で再検討する）
+- コード内コメントのID参照はID単独可とする。ID＋名前併記の規律（鉄則4・`CLAUDE.md`）はドキュメント側に適用し、コード内コメントは本規定が例外を定める
 
 ## コメント
 
