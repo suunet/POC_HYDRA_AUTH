@@ -29,7 +29,7 @@ description: チケット駆動プロセスの唯一の入口。T-NNN・指示�
 | `ready-to-approve` | **停止**:「§4.5 の全チェックを記入し、`ready-to-implement` にしてください」（AIによる代行記入は禁止） |
 | `ready-to-implement` | entry-gate（§4.5全チェック）を検証。OK → **停止**:「着手宣言（ステータスを `implementing` に変更）をお願いします」／NG → 不足を列挙して**停止** |
 | `implementing` | 指示書§4.2に未完サイクルあり → P5: `ticket-implement` を続行。全サイクル済み → P5後: `ticket-verify` を実行 |
-| `done` | `.docs/note/retro-*-tNNN.md`（小文字）の実在を確認し、**無ければ**「振り返り未実施です。`/ticket-retro T-NNN` を実行しますか」と提案して**停止**。あれば「done・retro済み」と報告して**停止** |
+| `done` | `.docs/note/retro.md` に当該チケットの節（`T-NNN` でgrep）があるか確認し、**無ければ**「振り返り未実施です。`/ticket-retro T-NNN` を実行しますか」と提案して**停止**。あれば「done・retro済み」と報告して**停止** |
 | 不明値 | **停止**:「ステータスを確認してください」 |
 
 ## 共通規則（全フェーズを拘束する）
