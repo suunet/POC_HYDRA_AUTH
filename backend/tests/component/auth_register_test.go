@@ -15,6 +15,7 @@ import (
 
 	"poc-app-hydra/backend/auth/adapters/db/dbmodels"
 	authclient "poc-app-hydra/backend/auth/api/http/client"
+	"poc-app-hydra/backend/auth/domain"
 )
 
 func uniqueEmail(t *testing.T) string {
@@ -30,7 +31,7 @@ func seedExistingUser(t *testing.T, ctx context.Context, email string) {
 		UserUuid:     userUUID,
 		Email:        email,
 		PasswordHash: "$2a$10$dummydummydummydummydummydummydummydummydummydummydu",
-		Status:       "mail_unverified",
+		Status:       domain.StatusMailUnverified,
 	}))
 	require.NoError(t, q.InsertUserRole(ctx, dbmodels.InsertUserRoleParams{
 		UserUuid: userUUID,

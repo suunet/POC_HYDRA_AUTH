@@ -94,7 +94,7 @@ func TestUC004_Resend_Unregistered_Returns200_Silent(t *testing.T) {
 
 // UC-004: A2 — mail_unverified 以外の全状態は200・メール送信なし（確認済み・無効化・削除等を包含）
 func TestUC004_Resend_NonUnverifiedStatus_Returns200_Silent(t *testing.T) {
-	for _, status := range []string{domain.StatusInactive, "invited", "disabled", "deleted"} {
+	for _, status := range []string{domain.StatusInactive, domain.StatusInvited, domain.StatusDisabled, domain.StatusDeleted} {
 		t.Run(status, func(t *testing.T) {
 			d := newTestDeps()
 			seedResendUser(d, "done@example.com", status)
@@ -111,9 +111,9 @@ func TestUC004_Resend_NonUnverifiedStatus_Returns200_Silent(t *testing.T) {
 // UC-004: E1 — レート超過は429 problem+json・retry_afterはTTL残秒。状態に依らず一様
 func TestUC004_Resend_RateLimited_Returns429_Uniform(t *testing.T) {
 	for name, seed := range map[string]func(*testDeps){
-		"未登録":             func(*testDeps) {},
-		"mail_unverified": func(d *testDeps) { seedResendUser(d, "limited@example.com", domain.StatusMailUnverified) },
-		"確認済み":            func(d *testDeps) { seedResendUser(d, "limited@example.com", domain.StatusInactive) },
+		"未登録":                       func(*testDeps) {},
+		domain.StatusMailUnverified: func(d *testDeps) { seedResendUser(d, "limited@example.com", domain.StatusMailUnverified) },
+		"確認済み":                      func(d *testDeps) { seedResendUser(d, "limited@example.com", domain.StatusInactive) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := newTestDeps()

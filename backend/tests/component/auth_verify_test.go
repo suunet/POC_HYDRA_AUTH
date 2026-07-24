@@ -57,7 +57,7 @@ func TestUC003_Verify_RealServer_HappyPath_TransitionsToInactive(t *testing.T) {
 	resp, err := client.VerifyEmailWithResponse(ctx, authclient.VerifyEmailJSONRequestBody{Token: token}, ip)
 	require.NoError(t, err)
 	assert.Equal(t, 200, resp.StatusCode())
-	assert.Equal(t, "inactive", userStatus(t, ctx, email), "STM-01: mail_unverified→inactive")
+	assert.Equal(t, domain.StatusInactive, userStatus(t, ctx, email), "STM-01: mail_unverified→inactive")
 
 	// E1b: 使い切り＝同一トークン再送は invalid-token
 	again, err := client.VerifyEmailWithResponse(ctx, authclient.VerifyEmailJSONRequestBody{Token: token}, ip)
@@ -98,7 +98,7 @@ func TestUC003_Verify_RealServer_ExpiredToken_Returns400(t *testing.T) {
 	require.Equal(t, 400, resp.StatusCode())
 	require.NotNil(t, resp.ApplicationproblemJSON400)
 	assert.Contains(t, resp.ApplicationproblemJSON400.Type, "token-expired")
-	assert.Equal(t, "mail_unverified", userStatus(t, ctx, email), "状態は遷移しない")
+	assert.Equal(t, domain.StatusMailUnverified, userStatus(t, ctx, email), "状態は遷移しない")
 }
 
 // UC-003: E4 — 同一IPから1分に10回を超えると429（VAR-17・実Redis・Retry-Afterヘッダ）
