@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"poc-app-hydra/backend/auth"
 	"poc-app-hydra/backend/auth/adapters/mail"
 	"poc-app-hydra/backend/auth/adapters/ratelimit"
+	"poc-app-hydra/backend/auth/domain"
 	"poc-app-hydra/backend/common"
 	applog "poc-app-hydra/backend/common/log"
 )
@@ -69,14 +71,23 @@ func main() {
 	}
 	verifyLimiter := ratelimit.NewEmailVerifyLimiter(redisClient, []byte(hmacSecret))
 	resendLimiter := ratelimit.NewResendEmailLimiter(redisClient)
+	loginLockout := ratelimit.NewLoginLockout(redisClient)
 	mailer := mail.NewSMTPMailer(fmt.Sprintf("%s:%s", smtpHost, smtpPort), smtpFrom)
+
+	signingKey, err := loadJWTSigningKey(os.Getenv("JWT_PRIVATE_KEY_PATH"))
+	if err != nil {
+		logger.ErrorContext(ctx, "failed to load JWT signing key", "ctx", "bootstrap", "error", err)
+		os.Exit(1)
+	}
 
 	e, err := backend.BuildAuth(ctx, logger, auth.Deps{
 		PgxDb:         pool,
 		Limiter:       limiter,
 		VerifyLimiter: verifyLimiter,
 		ResendLimiter: resendLimiter,
+		LoginLockout:  loginLockout,
 		Mailer:        mailer,
+		JWTSigningKey: signingKey,
 	})
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to build service", "ctx", "bootstrap", "error", err)
@@ -93,4 +104,17 @@ func main() {
 		logger.ErrorContext(ctx, "server stopped", "ctx", "bootstrap", "error", err)
 		os.Exit(1)
 	}
+}
+
+// loadJWTSigningKey は JWT_PRIVATE_KEY_PATH の PEM から RSA 秘密鍵を読む（Q-2・NFR-02）。
+// 未設定・読込失敗は起動時エラー（トークン発行不能なサービスを起動させない）。
+func loadJWTSigningKey(path string) (*rsa.PrivateKey, error) {
+	if path == "" {
+		return nil, fmt.Errorf("JWT_PRIVATE_KEY_PATH is not set")
+	}
+	pemBytes, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("could not read JWT private key: %w", err)
+	}
+	return domain.ParseRSAPrivateKeyPEM(pemBytes)
 }

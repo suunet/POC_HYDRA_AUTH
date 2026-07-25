@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"poc-app-hydra/backend/auth/adapters/db/dbmodels"
+	"poc-app-hydra/backend/auth/app/command"
 	"poc-app-hydra/backend/auth/domain"
 	"poc-app-hydra/backend/common"
 )
@@ -72,5 +73,39 @@ func (r *UserRepository) CreateUser(ctx context.Context, reg domain.Registration
 			return err
 		}
 		return afterInsert(ctx)
+	})
+}
+
+// GetLoginUser は削除済みを除外してユーザー（INF-01）とロール（INF-02）を取得する（UC-005）。
+// 未存在は found=false で返す（E3を沈黙で扱う・列挙防止）。
+func (r *UserRepository) GetLoginUser(ctx context.Context, email string) (command.LoginUser, bool, error) {
+	q := dbmodels.New(r.db)
+	row, err := q.GetUserByEmail(ctx, email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return command.LoginUser{}, false, nil
+	}
+	if err != nil {
+		return command.LoginUser{}, false, err
+	}
+	roles, err := q.GetUserRoles(ctx, row.UserUuid)
+	if err != nil {
+		return command.LoginUser{}, false, err
+	}
+	return command.LoginUser{
+		UserUUID:     row.UserUuid,
+		PasswordHash: row.PasswordHash,
+		Status:       row.Status,
+		Roles:        roles,
+	}, true, nil
+}
+
+// SaveRefreshToken はリフレッシュトークン（NFR-14: ハッシュのみ）を永続化する（INF-04）。
+func (r *UserRepository) SaveRefreshToken(ctx context.Context, rt command.RefreshTokenRecord) error {
+	return dbmodels.New(r.db).InsertRefreshToken(ctx, dbmodels.InsertRefreshTokenParams{
+		TokenID:   rt.TokenID,
+		UserUuid:  rt.UserUUID,
+		FamilyID:  rt.FamilyID,
+		TokenHash: rt.TokenHash,
+		ExpiresAt: rt.ExpiresAt,
 	})
 }

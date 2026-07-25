@@ -18,6 +18,12 @@ import (
 // NFR-14: リフレッシュトークンのランダム値バイト数（crypto/rand）
 const refreshTokenBytes = 32
 
+// トークン有効期限（VAR-03: アクセス15分・VAR-04: リフレッシュ30日）
+const (
+	AccessTokenTTL  = 15 * time.Minute
+	RefreshTokenTTL = 30 * 24 * time.Hour
+)
+
 // ParseRSAPrivateKeyPEM は PEM（PKCS#1 または PKCS#8）から RSA 秘密鍵を読む（Q-2: JWT_PRIVATE_KEY_PATH 経由で注入）。
 func ParseRSAPrivateKeyPEM(pemBytes []byte) (*rsa.PrivateKey, error) {
 	block, _ := pem.Decode(pemBytes)

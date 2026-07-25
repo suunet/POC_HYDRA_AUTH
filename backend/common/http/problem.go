@@ -21,7 +21,8 @@ type Problem struct {
 	Status           int    `json:"status"`
 	Detail           string `json:"detail,omitempty"`
 	Instance         string `json:"instance,omitempty"`
-	RetryAfter       *int   `json:"retry_after,omitempty"` // NOTE: レート制限時の再試行可能秒数
+	RetryAfter       *int   `json:"retry_after,omitempty"` // NOTE: レート制限・ロックアウト時の再試行可能秒数
+	ErrorCode        string `json:"error_code,omitempty"`  // NOTE: VAR-11拡張（account_locked等）
 	RevocationReason string `json:"revocation_reason,omitempty"`
 }
 
@@ -44,6 +45,11 @@ func NewProblemError(status int, typeSlug, detail string) *ProblemError {
 
 func (e *ProblemError) WithRetryAfter(seconds int) *ProblemError {
 	e.Problem.RetryAfter = &seconds
+	return e
+}
+
+func (e *ProblemError) WithErrorCode(code string) *ProblemError {
+	e.Problem.ErrorCode = code
 	return e
 }
 

@@ -35,3 +35,10 @@ SET status = $2,
 WHERE user_uuid = $1
   AND status = $3
   AND deleted_at IS NULL;
+
+-- name: GetUserRoles :many
+SELECT
+	role
+FROM auth.user_roles
+WHERE user_uuid = $1
+ORDER BY role;
