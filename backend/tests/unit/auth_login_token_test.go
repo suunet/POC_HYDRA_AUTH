@@ -97,3 +97,10 @@ func TestUC005_VerifyPassword_AndDummy(t *testing.T) {
 	// ダミー検証は完全比較まで到達して不一致を返す（早期リターンでtiming対策が無効化する退行を検知・NFR-03）
 	assert.ErrorIs(t, domain.DummyPasswordVerify("any-password"), bcrypt.ErrMismatchedHashAndPassword)
 }
+
+// UC-005 / NFR-03: ダミーハッシュのコストは register の PasswordBcryptCost と一致する
+// （片方だけ変更されるとE3/E4のtiming差が無言で再発するため構造的に結束する）
+func TestUC005_DummyHashCost_MatchesRegisterCost(t *testing.T) {
+	cost := domain.DummyBcryptHashCost()
+	assert.Equal(t, domain.PasswordBcryptCost, cost, "ダミーと登録のbcryptコストは一致（timing整合）")
+}

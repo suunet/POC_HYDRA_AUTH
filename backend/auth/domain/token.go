@@ -85,7 +85,17 @@ func DummyPasswordVerify(password string) error {
 	return bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(password))
 }
 
-// bcryptコスト12（NFR-01）の固定ダミーハッシュ。照合コストを実在ユーザーと揃えるためのもの。
+// bcryptコスト12（NFR-01・PasswordBcryptCost）の固定ダミーハッシュ。照合コストを実在ユーザーと揃えるためのもの。
 // 生成方法: 推測不能なランダム32バイト（base64url）を平文として `bcrypt.GenerateFromPassword(pw, 12)` で生成し、
 // 平文は破棄した（元平文が存在しないため CompareHashAndPassword は常に不一致で完全比較まで到達する）。
+// PasswordBcryptCost を変更した場合は本ハッシュも同コストで再生成すること（TestUC005_DummyHashCost_MatchesRegisterCost が検知する）。
 var dummyBcryptHash = []byte("$2a$12$/KPcFQoQrZnRME3ehYSpZOEALvYljQpop1F4uYX0oSdYWvaD77YVS")
+
+// DummyBcryptHashCost はダミーハッシュに埋め込まれたbcryptコストを返す（登録側コストとの結束検証用）。
+func DummyBcryptHashCost() int {
+	cost, err := bcrypt.Cost(dummyBcryptHash)
+	if err != nil {
+		panic(fmt.Sprintf("dummy bcrypt hash is malformed: %v", err))
+	}
+	return cost
+}
