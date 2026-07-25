@@ -56,6 +56,7 @@ func newVerifyTestEchoWithLimiter(t *testing.T, repo *fakeTokenRepository, limit
 		command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer),
 		command.NewVerifyEmailHandler(repo, limiter),
 		command.NewResendEmailVerificationHandler(d.resendRepo, d.limiter, d.mailer),
+		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, testSigningKey(nil)),
 	))
 	return e
 }
