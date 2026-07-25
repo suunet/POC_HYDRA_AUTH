@@ -75,6 +75,12 @@ func (h *LoginHandler) Handle(ctx context.Context, email, password string) (Logi
 	logger := applog.FromContext(ctx).With("usecase", "UC-005", "ctx", "login")
 	logger.InfoContext(ctx, "usecase started")
 
+	// E1: メールアドレス形式検証（VAR-01）。ロックアウト評価より前＝形式不正は評価順対象外
+	if err := domain.ValidateEmail(email); err != nil {
+		logger.WarnContext(ctx, "メールアドレス形式不正")
+		return LoginResult{}, err
+	}
+
 	// フロー3: ロックアウト確認（E2・CND-05）。失敗カウントより先に手前で弾く
 	locked, retryAfter, err := h.lockout.Check(ctx, email)
 	if err != nil {

@@ -101,16 +101,13 @@ func (h *Handler) Login(ctx context.Context, req LoginRequestObject) (LoginRespo
 		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
 	}
 
-	// E1: メールアドレス形式検証（ロックアウト評価より前＝形式不正は評価順対象外）
-	if err := domain.ValidateEmail(string(req.Body.Email)); err != nil {
-		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "メールアドレスの形式が不正です")
-	}
-
 	result, err := h.login.Handle(ctx, string(req.Body.Email), req.Body.Password)
 	var locked *command.LockedError
 	switch {
 	case err == nil:
 		return Login200JSONResponse{AccessToken: result.AccessToken, RefreshToken: result.RefreshToken}, nil
+	case errors.Is(err, domain.ErrInvalidEmail):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "メールアドレスの形式が不正です")
 	case errors.As(err, &locked):
 		// E2: retry_after は解除までの秒数（切り上げ・VAR-11）。Retry-Afterヘッダは共通実装が付与
 		problem := commonhttp.NewProblemError(http.StatusTooManyRequests, "account-locked", "アカウントがロックされています")
