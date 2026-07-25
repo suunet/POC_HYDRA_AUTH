@@ -74,7 +74,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoginResponse'
+                $ref: '#/components/schemas/LoginTokens'
         '400':
           description: メールアドレス形式不正（E1=validation-error）
           content:
@@ -236,7 +236,7 @@ components:
         password:
           type: string
           description: 認証用パスワード（照合はbcrypt・CND-02）
-    LoginResponse:
+    LoginTokens:
       type: object
       required:
         - access_token

@@ -35,8 +35,8 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
-// LoginResponse defines model for LoginResponse.
-type LoginResponse struct {
+// LoginTokens defines model for LoginTokens.
+type LoginTokens struct {
 	// AccessToken JWT（RS256・INF-03）。sub/roles/exp（VAR-03=15分）クレームを含む
 	AccessToken string `json:"access_token"`
 
@@ -269,7 +269,7 @@ type LoginResponseObject interface {
 	VisitLoginResponse(w http.ResponseWriter) error
 }
 
-type Login200JSONResponse LoginResponse
+type Login200JSONResponse LoginTokens
 
 func (response Login200JSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
