@@ -2,6 +2,7 @@ package tests_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -133,11 +134,13 @@ func TestUC005_Login_RealServer_LockoutAfter10Failures(t *testing.T) {
 	assert.NotEmpty(t, locked.HTTPResponse.Header.Get("Retry-After"))
 }
 
-// UC-005 E1: メールアドレス形式不正は400 validation-error
+// UC-005 E1: メールアドレス形式不正（VAR-01違反=254文字超）は400 validation-error
 func TestUC005_Login_RealServer_InvalidEmail_Returns400(t *testing.T) {
 	ctx := context.Background()
+	// NOTE: 生成クライアントのEmail型はregexで@なしを送信前に弾くため、regexを通り長さで弾かれる254文字超を使う（register E1と同手法）
+	longEmail := strings.Repeat("a", 250) + "@example.com"
 	resp, err := client.LoginWithResponse(ctx, authclient.LoginJSONRequestBody{
-		Email:    openapi_types.Email("not-an-email"), // @なし＝RFC5322違反（net/mailが弾く）
+		Email:    openapi_types.Email(longEmail),
 		Password: loginPassword,
 	})
 	require.NoError(t, err)
