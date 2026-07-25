@@ -112,7 +112,7 @@ func TestUC005_Login_Success_Returns200_IssuesTokens(t *testing.T) {
 	rec := postLogin(t, newLoginTestEcho(t, repo, lockout, key), `{"email":"a@example.com","password":"secret-passw0rd!"}`)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	var body apihttp.LoginResponse
+	var body apihttp.LoginTokens
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.NotEmpty(t, body.AccessToken)
 	assert.NotEmpty(t, body.RefreshToken)
