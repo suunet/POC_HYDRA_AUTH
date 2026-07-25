@@ -8,6 +8,7 @@
 erDiagram
     users ||--o{ user_roles : "grants"
     users ||--o{ email_confirmation_tokens : "issues"
+    users ||--o{ refresh_tokens : "issues"
 
     users {
         uuid user_uuid PK
@@ -29,6 +30,18 @@ erDiagram
         varchar token_hash
         timestamptz expires_at "VAR-06"
         timestamptz used_at
+        timestamptz created_at
+    }
+    refresh_tokens {
+        uuid token_id PK
+        uuid user_uuid FK
+        uuid family_id "NFR-14"
+        uuid parent_token_id "NFR-14"
+        varchar token_hash
+        timestamptz expires_at "VAR-04"
+        timestamptz used_at
+        timestamptz revoked_at
+        varchar revocation_reason "VAR-10"
         timestamptz created_at
     }
 ```
@@ -77,6 +90,29 @@ erDiagram
 **インデックス**
 
 - `email_confirmation_tokens_hash_unique`: `(token_hash)` UNIQUE
+
+## auth.refresh_tokens
+
+対応: INF-04（リフレッシュトークン）・NFR-14（opaque token実装要件）
+
+| 列 | 型 | 制約 | 説明 |
+|---|---|---|---|
+| `token_id` | uuid | PK | NFR-14: DB主キー（トークン値とは独立） |
+| `user_uuid` | uuid | NOT NULL・FK → `users.user_uuid` | |
+| `family_id` | uuid | NOT NULL | NFR-14: ローテーションチェーン識別子。再利用検知時はfamily単位で一括失効 |
+| `parent_token_id` | uuid | NULL可・FK → `refresh_tokens.token_id`（自己参照） | NFR-14: 前トークンの参照（初回発行はnull） |
+| `token_hash` | varchar(255) | NOT NULL | SHA-256ハッシュのみ保存（平文永続化禁止・NFR-14） |
+| `expires_at` | timestamptz | NOT NULL | VAR-04（30日） |
+| `used_at` | timestamptz | NULL可 | ローテーション消費時刻（使用済みは使用時刻で表す・INF-04。消費はBUC-U05） |
+| `revoked_at` | timestamptz | NULL可 | 失効時刻（消費とは別概念） |
+| `revocation_reason` | varchar(50) | NULL可 | VAR-10（セッション失効理由コード） |
+| `created_at` | timestamptz | NOT NULL DEFAULT now() | |
+
+**インデックス**
+
+- `refresh_tokens_hash_unique`: `(token_hash)` UNIQUE
+- `refresh_tokens_family_idx`: `(family_id)` — family一括失効用
+- `refresh_tokens_user_idx`: `(user_uuid)` — ユーザー単位失効（BUC-A03等）用
 
 ## レート制限（DB外）
 

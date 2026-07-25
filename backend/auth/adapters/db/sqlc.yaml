@@ -22,6 +22,13 @@ sql:
             go_type:
               import: "time"
               type: "Time"
+          # NOTE: nullableなuuidもnil判定できるよう *uuid.UUID にマップする（timestamptzと同規約）
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+              pointer: true
           - db_type: "uuid"
             go_type:
               import: "github.com/google/uuid"
