@@ -83,7 +83,7 @@ func (h *RegisterAccountHandler) Handle(ctx context.Context, email, password str
 		return nil
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), domain.PasswordBcryptCost)
 	if err != nil {
 		return fmt.Errorf("could not hash password: %w", err)
 	}
