@@ -44,8 +44,9 @@ func (w *bodyCapturingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 
 func (w *bodyCapturingWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// NOTE: 部分一致（current_password等の将来キーを取りこぼさない・チェッカー指摘#2）
-var sensitiveLogKeyParts = []string{"password", "token", "secret"}
+// NOTE: 部分一致（current_password等の将来キーを取りこぼさない・チェッカー指摘#2）。
+// email はPII（NFR-09: 個人情報を全ログから除外・T-013 P5後BJ#1）。
+var sensitiveLogKeyParts = []string{"password", "token", "secret", "email"}
 
 func isSensitiveLogKey(key string) bool {
 	k := strings.ToLower(key)
@@ -121,12 +122,19 @@ func requestLogMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		err := next(c)
 		duration := time.Since(start)
 
+		// NOTE: strict-serverはエラー時に応答を書かず後段のHTTPErrorHandlerがstatusを確定するため、
+		// この時点の c.Response().Status は既定200のまま。エラー時はerrから実statusを求める（P5後BJ・A）。
+		status := c.Response().Status
+		if err != nil {
+			status = StatusFromError(err)
+		}
+
 		ctx := req.Context()
 		logger := applog.FromContext(ctx).With(
 			"ctx", "http",
 			"URI", req.RequestURI,
 			"method", req.Method,
-			"status", c.Response().Status,
+			"status", status,
 			"duration", duration.String(),
 			"request_body", truncateBodyForLog(redactBodyForLog(string(reqBody))),
 		)

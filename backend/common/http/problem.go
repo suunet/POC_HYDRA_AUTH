@@ -53,6 +53,25 @@ func (e *ProblemError) WithErrorCode(code string) *ProblemError {
 	return e
 }
 
+// StatusFromError はハンドラが返したエラーから最終的なHTTPステータスを求める。
+// strict-serverはエラー時に応答を書かず後段の HTTPErrorHandler が status を確定するため、
+// ミドルウェア（requestlog）が応答書込前に実 status を知るのに使う（ProblemErrorHandler と同一の決定）。
+func StatusFromError(err error) int {
+	if err == nil {
+		return 0
+	}
+	var pe *ProblemError
+	var he *echo.HTTPError
+	switch {
+	case errors.As(err, &pe):
+		return pe.Problem.Status
+	case errors.As(err, &he):
+		return he.Code
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
 func ProblemErrorHandler(err error, c echo.Context) {
 	if c.Response().Committed {
 		return
