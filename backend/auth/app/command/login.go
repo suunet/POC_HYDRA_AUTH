@@ -75,6 +75,12 @@ func (h *LoginHandler) Handle(ctx context.Context, email, password string) (Logi
 	logger := applog.FromContext(ctx).With("usecase", "UC-005", "ctx", "login")
 	logger.InfoContext(ctx, "usecase started")
 
+	// NOTE: 内部/外部依存の失敗はUC層でERRORログを出してから500相当のエラーを返す（NFR-08・P5後BJ#3）。
+	fail := func(msg string, cause error) (LoginResult, error) {
+		logger.ErrorContext(ctx, msg, "error", cause)
+		return LoginResult{}, fmt.Errorf("%s: %w", msg, cause)
+	}
+
 	// E1: メールアドレス形式検証（VAR-01）。ロックアウト評価より前＝形式不正は評価順対象外
 	if err := domain.ValidateEmail(email); err != nil {
 		logger.WarnContext(ctx, "メールアドレス形式不正")
@@ -84,7 +90,7 @@ func (h *LoginHandler) Handle(ctx context.Context, email, password string) (Logi
 	// フロー3: ロックアウト確認（E2・CND-05）。失敗カウントより先に手前で弾く
 	locked, retryAfter, err := h.lockout.Check(ctx, email)
 	if err != nil {
-		return LoginResult{}, fmt.Errorf("could not check lockout: %w", err)
+		return fail("could not check lockout", err)
 	}
 	if locked {
 		logger.WarnContext(ctx, "ロックアウト中のログイン試行")
@@ -94,13 +100,13 @@ func (h *LoginHandler) Handle(ctx context.Context, email, password string) (Logi
 	// フロー4: ユーザー検索（削除済み除外）
 	user, found, err := h.users.GetLoginUser(ctx, email)
 	if err != nil {
-		return LoginResult{}, fmt.Errorf("could not look up user: %w", err)
+		return fail("could not look up user", err)
 	}
 	if !found {
 		// E3: timing attack対策のダミー検証＋均一な失敗加算（ユーザー列挙防止・NFR-03）
 		_ = domain.DummyPasswordVerify(password)
 		if _, err := h.lockout.RecordFailure(ctx, email); err != nil {
-			return LoginResult{}, fmt.Errorf("could not record login failure: %w", err)
+			return fail("could not record login failure", err)
 		}
 		logger.WarnContext(ctx, "ログイン失敗")
 		return LoginResult{}, ErrAuthenticationFailed
@@ -110,7 +116,7 @@ func (h *LoginHandler) Handle(ctx context.Context, email, password string) (Logi
 	if err := domain.VerifyPassword(user.PasswordHash, password); err != nil {
 		// E4: user_id 付きで失敗を記録
 		if _, rerr := h.lockout.RecordFailure(ctx, email); rerr != nil {
-			return LoginResult{}, fmt.Errorf("could not record login failure: %w", rerr)
+			return fail("could not record login failure", rerr)
 		}
 		logger.WarnContext(ctx, "ログイン失敗", "user_id", user.UserUUID.String())
 		return LoginResult{}, ErrAuthenticationFailed
@@ -129,17 +135,17 @@ func (h *LoginHandler) Handle(ctx context.Context, email, password string) (Logi
 
 	// フロー8: 失敗カウントをリセット
 	if err := h.lockout.Reset(ctx, email); err != nil {
-		return LoginResult{}, fmt.Errorf("could not reset failure count: %w", err)
+		return fail("could not reset failure count", err)
 	}
 
 	// フロー9/10: トークン発行
 	accessToken, err := domain.GenerateAccessToken(h.signingKey, user.UserUUID.String(), user.Roles, domain.AccessTokenTTL)
 	if err != nil {
-		return LoginResult{}, fmt.Errorf("could not issue access token: %w", err)
+		return fail("could not issue access token", err)
 	}
 	plainRefresh, hash, err := domain.GenerateRefreshToken()
 	if err != nil {
-		return LoginResult{}, fmt.Errorf("could not generate refresh token: %w", err)
+		return fail("could not generate refresh token", err)
 	}
 	if err := h.users.SaveRefreshToken(ctx, RefreshTokenRecord{
 		TokenID:   uuid.New(),
@@ -148,7 +154,7 @@ func (h *LoginHandler) Handle(ctx context.Context, email, password string) (Logi
 		TokenHash: hash,
 		ExpiresAt: time.Now().Add(domain.RefreshTokenTTL),
 	}); err != nil {
-		return LoginResult{}, fmt.Errorf("could not save refresh token: %w", err)
+		return fail("could not save refresh token", err)
 	}
 
 	logger.InfoContext(ctx, "usecase finished", "user_id", user.UserUUID.String())
