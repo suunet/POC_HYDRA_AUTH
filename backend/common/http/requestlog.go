@@ -124,8 +124,9 @@ func requestLogMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 
 		// NOTE: strict-serverはエラー時に応答を書かず後段のHTTPErrorHandlerがstatusを確定するため、
 		// この時点の c.Response().Status は既定200のまま。エラー時はerrから実statusを求める（P5後BJ・A）。
+		// ただし応答書込後にerrが返る稀ケース（Committed）では実送出statusを尊重する（ProblemErrorHandlerと判定一致）。
 		status := c.Response().Status
-		if err != nil {
+		if err != nil && !c.Response().Committed {
 			status = StatusFromError(err)
 		}
 

@@ -79,10 +79,11 @@ func ProblemErrorHandler(err error, c echo.Context) {
 
 	// NOTE: statusの決定は StatusFromError に一本化（requestlogと同一の値になることを構造的に保証・BJ c8#1）。
 	// 本switchはTitle/Detail/Type整形とログのみを担う
+	status := StatusFromError(err)
 	problem := Problem{
 		Type:   "about:blank",
-		Title:  http.StatusText(StatusFromError(err)),
-		Status: StatusFromError(err),
+		Title:  http.StatusText(status),
+		Status: status,
 	}
 
 	var pe *ProblemError
