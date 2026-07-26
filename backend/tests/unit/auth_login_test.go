@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,9 +59,13 @@ type fakeLockout struct {
 	retryAfter time.Duration
 	failures   int
 	resets     int
+	checkErr   error // 外部依存（Redis）障害を模す
 }
 
 func (f *fakeLockout) Check(ctx context.Context, key string) (bool, time.Duration, error) {
+	if f.checkErr != nil {
+		return false, 0, f.checkErr
+	}
 	return f.locked, f.retryAfter, nil
 }
 
@@ -181,4 +186,26 @@ func TestUC005_Login_AccountDisabled_Returns403(t *testing.T) {
 
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	assert.Contains(t, problemType(t, rec), "account-disabled")
+}
+
+// UC-005 / NFR-08: 外部依存（ロックアウト＝Redis）障害はUC層でERRORログを出しエラーを返す（fail-closed・P5後BJ#3）
+func TestUC005_Login_LockoutBackendFailure_LogsErrorAndFails(t *testing.T) {
+	var buf bytes.Buffer
+	logger := applog.New(&buf, "test")
+	ctx := applog.ContextWithLogger(context.Background(), logger)
+
+	h := command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{checkErr: errors.New("redis down")}, testSigningKey(t))
+	_, err := h.Handle(ctx, "a@example.com", "secret-passw0rd!")
+
+	require.Error(t, err, "外部依存障害はエラーを返す（fail-closed）")
+	// ERRORレベルのログが出る（NFR-08: 外部依存失敗=ERROR）
+	var sawError bool
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var entry map[string]any
+		if json.Unmarshal([]byte(line), &entry) == nil && entry["lvl"] == "ERROR" {
+			sawError = true
+			assert.Equal(t, "login", entry["ctx"], "UC層(ctx=login)のERRORログ")
+		}
+	}
+	assert.True(t, sawError, "外部依存障害でERRORログが出る")
 }
