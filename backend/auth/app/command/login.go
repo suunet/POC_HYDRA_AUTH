@@ -33,11 +33,12 @@ type LoginUser struct {
 
 // RefreshTokenRecord は永続化するリフレッシュトークン（INF-04・NFR-14: ハッシュのみ）。
 type RefreshTokenRecord struct {
-	TokenID   uuid.UUID
-	UserUUID  uuid.UUID
-	FamilyID  uuid.UUID
-	TokenHash string
-	ExpiresAt time.Time
+	TokenID       uuid.UUID
+	UserUUID      uuid.UUID
+	FamilyID      uuid.UUID
+	ParentTokenID *uuid.UUID // NFR-14: 前トークン参照（ログイン初回発行はnil・ローテーション〔UC-006〕で旧token_idを記録）
+	TokenHash     string
+	ExpiresAt     time.Time
 }
 
 type LoginUserRepository interface {
