@@ -92,7 +92,8 @@ func TestUC005_Lockout_ResetClearsFailureCount(t *testing.T) {
 // UC-005 / NFR-03: ロックキーのTTLが失われても（運用ミス等）Check がロック維持しつつlockTTLを再設定して自癒する
 func TestUC005_Lockout_Check_HealsLockKeyWithoutTTL(t *testing.T) {
 	ctx := context.Background()
-	l := newTestLockout(15*time.Minute, 15*time.Minute, 1)
+	// window と lockTTL を異値にし、自癒で lockTTL 側が設定されたことを識別する（BJ c9#1）
+	l := newTestLockout(1*time.Minute, 15*time.Minute, 1)
 	key := lockoutKey(t)
 
 	locked, err := l.RecordFailure(ctx, key) // threshold=1で即ロック
@@ -112,13 +113,15 @@ func TestUC005_Lockout_Check_HealsLockKeyWithoutTTL(t *testing.T) {
 
 	healed, err := redisClient.PTTL(ctx, "test:lockout:lock:"+key).Result()
 	require.NoError(t, err)
-	assert.Positive(t, healed, "ロックキーにTTLが再設定される")
+	assert.Greater(t, healed, 1*time.Minute, "window(1m)でなくlockTTL(15m)側が再設定される")
+	assert.LessOrEqual(t, healed, 15*time.Minute, "lockTTLを超えない")
 }
 
 // UC-005 / NFR-03: カウントキーのTTLが失われても RecordFailure が窓長を再設定して自癒する
 func TestUC005_Lockout_RecordFailure_HealsCountKeyWithoutTTL(t *testing.T) {
 	ctx := context.Background()
-	l := newTestLockout(15*time.Minute, 15*time.Minute, 10)
+	// window と lockTTL を異値にし、自癒で window(カウント窓)側が設定されたことを識別する（BJ c9#1）
+	l := newTestLockout(1*time.Minute, 15*time.Minute, 10)
 	key := lockoutKey(t)
 
 	_, err := l.RecordFailure(ctx, key)
@@ -133,5 +136,6 @@ func TestUC005_Lockout_RecordFailure_HealsCountKeyWithoutTTL(t *testing.T) {
 
 	healed, err := redisClient.PTTL(ctx, "test:lockout:count:"+key).Result()
 	require.NoError(t, err)
-	assert.Positive(t, healed, "カウントキーに窓長TTLが再設定される（永続カウント回避）")
+	assert.LessOrEqual(t, healed, 1*time.Minute, "lockTTL(15m)でなくwindow(1m)側が再設定される")
+	assert.Positive(t, healed, "永続カウント回避＝TTLが再設定される")
 }
