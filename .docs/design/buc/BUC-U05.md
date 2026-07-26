@@ -65,10 +65,10 @@
 
 **E4. リフレッシュトークン再利用検知（ステップ5）**
 
-- a. システムは当該ユーザーの全リフレッシュトークンを無効化する（全セッション無効化）
-- b. システムは監査ログ（リフレッシュトークン再利用検知、CRITICAL）を記録する（`{ ctx: "token_refresh", msg: "リフレッシュトークン再利用検知・全セッション無効化", lvl: "CRITICAL" }`。NFR-08）
+- a. システムは当該リフレッシュトークンと同一 `family_id` の全レコードを無効化する（当該family〔チェーン〕のセッション無効化・他familyは生かす）
+- b. システムは監査ログ（リフレッシュトークン再利用検知、CRITICAL）を記録する（`{ ctx: "token_refresh", msg: "リフレッシュトークン再利用検知・当該family（チェーン）のセッション無効化", lvl: "CRITICAL" }`。NFR-08）
 - c. システムは401 (Unauthorized)、`application/problem+json`、`type: https://example.com/probs/session-revoked`、`revocation_reason: token_reuse_detected` を返す
-- ロールバックスコープ: 全セッション無効化は部分失敗を許容しない。無効化処理が失敗した場合は500を返し、手動対応を促す
+- ロールバックスコープ: family一括失効は部分失敗を許容しない。無効化処理が失敗した場合は500を返し、手動対応を促す
 
 **E5. ユーザーが存在しない（削除済み）場合（ステップ6）**
 
@@ -111,7 +111,7 @@ entity "UserRepository" as ユーザーRepo
 ユースケース --> ユースケース : checkAccountStatus(user)
 ユースケース --> リフレッシュトークンRepo : markAsUsed(token)
 ユースケース --> トークン生成 : generateRefreshToken()
-ユースケース --> リフレッシュトークンRepo : save(newRefreshToken)
+ユースケース --> リフレッシュトークンRepo : save(newRefreshToken{ family_id })
 ユースケース --> トークン生成 : generateAccessToken(user, roles)
 
 トークン再発行API <-- ユースケース : 200 OK { accessToken, refreshToken }
@@ -152,8 +152,8 @@ sequenceDiagram
   end
   UseCase->>UseCase: checkAlreadyUsed(token)
   alt E4: リフレッシュトークン再利用検知
-  UseCase->>RefreshRepo: revokeAllByUserId(token.userId)
-  Note right of RefreshRepo: CRITICAL 監査ログ<br/>{ ctx: "token_refresh",<br/>msg: "リフレッシュトークン再利用検知・<br/>全セッション無効化" }<br/>ロールバック: 全セッション無効化は<br/>部分失敗を許容しない
+  UseCase->>RefreshRepo: revokeByFamilyId(token.familyId)
+  Note right of RefreshRepo: CRITICAL 監査ログ<br/>{ ctx: "token_refresh",<br/>msg: "リフレッシュトークン再利用検知・<br/>当該family（チェーン）のセッション無効化" }<br/>ロールバック: family一括失効は<br/>部分失敗を許容しない
   UseCase-->>RefreshAPI: SessionRevokedError
   RefreshAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../session-revoked<br/>revocation_reason: token_reuse_detected
   end
@@ -172,7 +172,7 @@ sequenceDiagram
   end
   UseCase->>RefreshRepo: markAsUsed(token)
   UseCase->>UseCase: generateRefreshToken()
-  UseCase->>RefreshRepo: save(newRefreshToken{ user_id, parent_token_id, expires_at })
+  UseCase->>RefreshRepo: save(newRefreshToken{ user_id, family_id, parent_token_id, expires_at })
   RefreshRepo-->>UseCase: savedToken
   UseCase->>UseCase: generateAccessToken<br/>(JWT RS256, { sub: user.id, roles: user.roles })
   Note right of UseCase: INFO 監査ログ<br/>{ ctx: "token_refresh", msg: "アクセストークン期限切れ" }
@@ -188,7 +188,7 @@ sequenceDiagram
 |----------|--------|------------|------|
 | アクセストークン期限切れ | INFO | user_id | 基本フロー完了時（トークン再発行成功） |
 | 不正トークンでのアクセス試行 | WARNING | — | E2（存在しないトークン） |
-| リフレッシュトークン再利用検知（全セッション無効化） | CRITICAL | user_id | E4（再利用検知時。全セッション無効化を実行） |
+| リフレッシュトークン再利用検知（当該family無効化） | CRITICAL | user_id | E4（再利用検知時。当該family〔チェーン〕を一括失効・log contextにfamily_id併記） |
 
 ---
 
@@ -197,7 +197,7 @@ sequenceDiagram
 | 項目 | 決定内容 | 理由 |
 |---|---|---|
 | リフレッシュトークンローテーション | 使用のたびに新トークンを発行し、旧トークンを使用済みに更新する | NFR-10準拠。トークン窃取時の被害を限定する |
-| 再利用検知による全セッション無効化 | 使用済みトークンでの再利用を検知した場合、当該ユーザーの全リフレッシュトークンを無効化する | NFR-10準拠。トークン窃取の可能性が高いため、全セッションを安全側に倒して無効化する |
+| 再利用検知による当該family無効化 | 使用済みトークンでの再利用を検知した場合、同一 `family_id`（ローテーションチェーン）の全レコードを無効化する（他familyは生かす） | NFR-10/NFR-14準拠。窃取されたチェーンを安全側に倒して無効化する。target識別はuser_id・log contextにfamily_id併記 |
 | parent_token_idの保持 | 新リフレッシュトークンに親トークンIDを記録する | トークンチェーンを追跡可能にし、再利用検知時にどのトークンファミリーが侵害されたかを特定するため |
 | 再発行時点のロール反映 | アクセストークンのClaimsには再発行時点のDBのロールを含める | ロール変更後、次回トークン再発行時に新ロールが反映される。ロール変更時の全セッション無効化（BUC-A07）と併せて、権限の即時反映を実現する |
 | 削除済み・無効化済みアカウントの検出 | トークン再発行時にアカウント状態を確認し、不正な状態であればリフレッシュトークンを失効させる | アカウント削除・無効化後にリフレッシュトークンが残存していた場合のフェイルセーフ。BUC-A04/A06で全セッション無効化済みだが、タイミングの隙間を防ぐ |
