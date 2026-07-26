@@ -48,12 +48,13 @@ func TestTruncateBodyForLog(t *testing.T) {
 
 // NFR-09: 機密キー（password/token等）はネストも含め[REDACTED]化し、平文をログに残さない
 func TestRedactBodyForLog(t *testing.T) {
-	got := redactBodyForLog(`{"email":"a@example.com","password":"secret-passw0rd!","nested":{"token":"tok123"}}`)
+	got := redactBodyForLog(`{"username":"alice","email":"a@example.com","password":"secret-passw0rd!","nested":{"token":"tok123"}}`)
 
 	assert.NotContains(t, got, "secret-passw0rd!")
 	assert.NotContains(t, got, "tok123")
+	assert.NotContains(t, got, "a@example.com", "emailはPIIとして伏字（NFR-09・T-013 P5後BJ#1）")
 	assert.Contains(t, got, "[REDACTED]")
-	assert.Contains(t, got, "a@example.com", "機密でないキーは保持")
+	assert.Contains(t, got, "alice", "機密でないキーは保持")
 	assert.Equal(t, "<non-json body (28 bytes)>", redactBodyForLog("password=FormLeakCheck456!xx"), "非JSONは原文を出さない")
 	assert.NotContains(t, redactBodyForLog(`{"current_password":"old!","new_password":"new!"}`), "old!", "部分一致キーも伏字")
 	assert.Empty(t, redactBodyForLog(""))
