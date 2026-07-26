@@ -26,12 +26,33 @@ type EmailVerifyResendRequest struct {
 	Email openapi_types.Email `json:"email"`
 }
 
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	// Email VAR-01（RFC5322準拠・最大254文字）
+	Email openapi_types.Email `json:"email"`
+
+	// Password 認証用パスワード（照合はbcrypt・CND-02）
+	Password string `json:"password"`
+}
+
+// LoginTokens defines model for LoginTokens.
+type LoginTokens struct {
+	// AccessToken JWT（RS256・INF-03）。sub/roles/exp（VAR-03=15分）クレームを含む
+	AccessToken string `json:"access_token"`
+
+	// RefreshToken opaque token（INF-04・NFR-14。base64url。DBにはSHA-256ハッシュのみ保存）
+	RefreshToken string `json:"refresh_token"`
+}
+
 // Problem RFC 9457 Problem Details（NFR-06）。retry_after・revocation_reason は拡張フィールド
 type Problem struct {
-	Detail   *string `json:"detail,omitempty"`
-	Instance *string `json:"instance,omitempty"`
+	Detail *string `json:"detail,omitempty"`
 
-	// RetryAfter レート制限超過時の再試行可能秒数（E4）
+	// ErrorCode 拡張エラーコード（VAR-11＝account_locked 等）
+	ErrorCode *string `json:"error_code,omitempty"`
+	Instance  *string `json:"instance,omitempty"`
+
+	// RetryAfter レート制限・ロックアウト超過時の再試行可能秒数（E4・VAR-11）
 	RetryAfter *int `json:"retry_after,omitempty"`
 
 	// RevocationReason セッション失効理由コード（VAR-10・本APIでは未使用）
@@ -58,6 +79,9 @@ type VerifyEmailJSONRequestBody = EmailVerifyRequest
 // ResendEmailVerificationJSONRequestBody defines body for ResendEmailVerification for application/json ContentType.
 type ResendEmailVerificationJSONRequestBody = EmailVerifyResendRequest
 
+// LoginJSONRequestBody defines body for Login for application/json ContentType.
+type LoginJSONRequestBody = LoginRequest
+
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
 
@@ -69,6 +93,9 @@ type ServerInterface interface {
 	// メール確認トークンを再送する
 	// (POST /auth/email-verify/resend)
 	ResendEmailVerification(ctx echo.Context) error
+	// ログインする
+	// (POST /auth/login)
+	Login(ctx echo.Context) error
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx echo.Context) error
@@ -94,6 +121,15 @@ func (w *ServerInterfaceWrapper) ResendEmailVerification(ctx echo.Context) error
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.ResendEmailVerification(ctx)
+	return err
+}
+
+// Login converts echo context to params.
+func (w *ServerInterfaceWrapper) Login(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.Login(ctx)
 	return err
 }
 
@@ -136,6 +172,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 
 	router.POST(baseURL+"/auth/email-verify", wrapper.VerifyEmail)
 	router.POST(baseURL+"/auth/email-verify/resend", wrapper.ResendEmailVerification)
+	router.POST(baseURL+"/auth/login", wrapper.Login)
 	router.POST(baseURL+"/auth/register", wrapper.RegisterAccount)
 
 }
@@ -224,6 +261,67 @@ func (response ResendEmailVerification503ApplicationProblemPlusJSONResponse) Vis
 	return json.NewEncoder(w).Encode(response)
 }
 
+type LoginRequestObject struct {
+	Body *LoginJSONRequestBody
+}
+
+type LoginResponseObject interface {
+	VisitLoginResponse(w http.ResponseWriter) error
+}
+
+type Login200JSONResponse LoginTokens
+
+func (response Login200JSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type Login400ApplicationProblemPlusJSONResponse Problem
+
+func (response Login400ApplicationProblemPlusJSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type Login401ApplicationProblemPlusJSONResponse Problem
+
+func (response Login401ApplicationProblemPlusJSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type Login403ApplicationProblemPlusJSONResponse Problem
+
+func (response Login403ApplicationProblemPlusJSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type Login429ResponseHeaders struct {
+	RetryAfter int
+}
+
+type Login429ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers Login429ResponseHeaders
+}
+
+func (response Login429ApplicationProblemPlusJSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
 type RegisterAccountRequestObject struct {
 	Body *RegisterAccountJSONRequestBody
 }
@@ -283,6 +381,9 @@ type StrictServerInterface interface {
 	// メール確認トークンを再送する
 	// (POST /auth/email-verify/resend)
 	ResendEmailVerification(ctx context.Context, request ResendEmailVerificationRequestObject) (ResendEmailVerificationResponseObject, error)
+	// ログインする
+	// (POST /auth/login)
+	Login(ctx context.Context, request LoginRequestObject) (LoginResponseObject, error)
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx context.Context, request RegisterAccountRequestObject) (RegisterAccountResponseObject, error)
@@ -352,6 +453,35 @@ func (sh *strictHandler) ResendEmailVerification(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(ResendEmailVerificationResponseObject); ok {
 		return validResponse.VisitResendEmailVerificationResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// Login operation middleware
+func (sh *strictHandler) Login(ctx echo.Context) error {
+	var request LoginRequestObject
+
+	var body LoginJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.Login(ctx.Request().Context(), request.(LoginRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Login")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(LoginResponseObject); ok {
+		return validResponse.VisitLoginResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

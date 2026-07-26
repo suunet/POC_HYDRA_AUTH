@@ -2,6 +2,8 @@ package tests_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"net/http/httptest"
 	"os"
 	"sync"
@@ -55,10 +57,11 @@ func (m *stubMailer) Sent() []sentMail {
 }
 
 var (
-	mailer      *stubMailer
-	client      *authclient.ClientWithResponses
-	pool        *pgxpool.Pool
-	redisClient *redis.Client
+	mailer       *stubMailer
+	client       *authclient.ClientWithResponses
+	pool         *pgxpool.Pool
+	redisClient  *redis.Client
+	jwtPublicKey *rsa.PublicKey
 )
 
 func TestMain(m *testing.M) {
@@ -93,13 +96,24 @@ func TestMain(m *testing.M) {
 	limiter := ratelimit.NewRegistrationLimiter(redisClient)
 	verifyLimiter := ratelimit.NewEmailVerifyLimiter(redisClient, []byte("component-test-secret"))
 	resendLimiter := ratelimit.NewResendEmailLimiter(redisClient)
+	loginLockout := ratelimit.NewLoginLockout(redisClient)
+
+	// NOTE: componentテストは実インフラ（DB/Redis）を使うが、JWT署名鍵はテスト内で都度生成する
+	// （鍵ファイル依存を持ち込まない・トークン検証は公開鍵で行う）
+	jwtKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+	jwtPublicKey = &jwtKey.PublicKey
 
 	e, err := backend.BuildAuth(ctx, logger, auth.Deps{
 		PgxDb:         pool,
 		Limiter:       limiter,
 		VerifyLimiter: verifyLimiter,
 		ResendLimiter: resendLimiter,
+		LoginLockout:  loginLockout,
 		Mailer:        mailer,
+		JWTSigningKey: jwtKey,
 	})
 	if err != nil {
 		panic(err)

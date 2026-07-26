@@ -17,10 +17,11 @@ type Handler struct {
 	register *command.RegisterAccountHandler
 	verify   *command.VerifyEmailHandler
 	resend   *command.ResendEmailVerificationHandler
+	login    *command.LoginHandler
 }
 
-func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler) *Handler {
-	return &Handler{register: register, verify: verify, resend: resend}
+func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler) *Handler {
+	return &Handler{register: register, verify: verify, resend: resend, login: login}
 }
 
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
@@ -90,6 +91,34 @@ func (h *Handler) ResendEmailVerification(ctx context.Context, req ResendEmailVe
 		return nil, problem.WithRetryAfter(int(math.Ceil(rateLimited.RetryAfter.Seconds())))
 	case errors.Is(err, command.ErrMailDeliveryFail):
 		return nil, commonhttp.NewProblemError(http.StatusServiceUnavailable, "mail-delivery-error", "確認メールの送信に失敗しました")
+	default:
+		return nil, err
+	}
+}
+
+func (h *Handler) Login(ctx context.Context, req LoginRequestObject) (LoginResponseObject, error) {
+	if req.Body == nil {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
+	}
+
+	result, err := h.login.Handle(ctx, string(req.Body.Email), req.Body.Password)
+	var locked *command.LockedError
+	switch {
+	case err == nil:
+		return Login200JSONResponse{AccessToken: result.AccessToken, RefreshToken: result.RefreshToken}, nil
+	case errors.Is(err, domain.ErrInvalidEmail):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "メールアドレスの形式が不正です")
+	case errors.As(err, &locked):
+		// E2: retry_after は解除までの秒数（切り上げ・VAR-11）。Retry-Afterヘッダは共通実装が付与
+		problem := commonhttp.NewProblemError(http.StatusTooManyRequests, "account-locked", "アカウントがロックされています")
+		return nil, problem.WithRetryAfter(int(math.Ceil(locked.RetryAfter.Seconds()))).WithErrorCode("account_locked")
+	case errors.Is(err, command.ErrAuthenticationFailed):
+		// E3/E4: 未登録・不一致を区別しない
+		return nil, commonhttp.NewProblemError(http.StatusUnauthorized, "authentication-failed", "認証に失敗しました")
+	case errors.Is(err, domain.ErrEmailNotVerified):
+		return nil, commonhttp.NewProblemError(http.StatusForbidden, "email-not-verified", "メールアドレスが確認されていません")
+	case errors.Is(err, domain.ErrAccountDisabled):
+		return nil, commonhttp.NewProblemError(http.StatusForbidden, "account-disabled", "アカウントが無効化されています")
 	default:
 		return nil, err
 	}

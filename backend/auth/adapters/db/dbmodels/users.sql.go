@@ -48,6 +48,34 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 	return i, err
 }
 
+const getUserRoles = `-- name: GetUserRoles :many
+SELECT
+	role
+FROM auth.user_roles
+WHERE user_uuid = $1
+ORDER BY role
+`
+
+func (q *Queries) GetUserRoles(ctx context.Context, userUuid uuid.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, getUserRoles, userUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, err
+		}
+		items = append(items, role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertUser = `-- name: InsertUser :exec
 INSERT INTO auth.users (
 	user_uuid,

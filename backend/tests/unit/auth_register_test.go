@@ -100,6 +100,7 @@ func newAuthTestEcho(t *testing.T, d *testDeps) http.Handler {
 		command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer),
 		command.NewVerifyEmailHandler(&fakeTokenRepository{}, &fakeRateLimiter{blocked: map[string]bool{}}),
 		command.NewResendEmailVerificationHandler(d.resendRepo, d.limiter, d.mailer),
+		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, testSigningKey(nil)),
 	))
 	return e
 }
@@ -126,6 +127,9 @@ func TestUC002_Register_Returns201_AndCreatesUser(t *testing.T) {
 	assert.Equal(t, domain.RoleUser, created.Role)
 	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(created.PasswordHash), []byte("secret-passw0rd!")),
 		"password must be stored as a verifiable bcrypt hash")
+	cost, err := bcrypt.Cost([]byte(created.PasswordHash))
+	require.NoError(t, err)
+	assert.Equal(t, domain.PasswordBcryptCost, cost, "NFR-01: bcryptコストは12（ダミー検証とtiming整合）")
 	assert.NotEmpty(t, created.UserUUID)
 }
 

@@ -16,3 +16,4 @@
 
 # air build artifacts
 /tmp/
+.docker/local/auth/jwt_private_dev.pem

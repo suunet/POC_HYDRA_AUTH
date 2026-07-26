@@ -15,6 +15,10 @@ import (
 
 const RoleUser = "user"
 
+// NFR-01: パスワードbcryptハッシュのコストファクター（OWASP 2023推奨値）。
+// UC-005のダミー検証（domain.DummyPasswordVerify）とコストを揃え、E3/E4のtiming差を消す。
+const PasswordBcryptCost = 12
+
 const (
 	emailMaxLength    = 254
 	passwordMinLength = 15

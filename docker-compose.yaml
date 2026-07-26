@@ -51,6 +51,7 @@ services:
       POSTGRES_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-app}?sslmode=disable
       REDIS_ADDR: redis:6379
       RATELIMIT_HMAC_SECRET: ${RATELIMIT_HMAC_SECRET:-local-dev-secret}
+      JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-/workspace/.docker/local/auth/jwt_private_dev.pem}
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       SMTP_FROM: no-reply@example.com

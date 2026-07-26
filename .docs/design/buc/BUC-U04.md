@@ -9,7 +9,7 @@
 | アクター | ACT-01（ユーザー）・ACT-02（管理者） |
 | スコープ | Must |
 | 関連FR | FR-05 |
-| 関連NFR | NFR-01, NFR-02, NFR-03, NFR-06, NFR-07, NFR-08, NFR-09, NFR-10 |
+| 関連NFR | NFR-01, NFR-02, NFR-03, NFR-06, NFR-07, NFR-08, NFR-09, NFR-10, NFR-14, NFR-16 |
 | 関連情報 | INF-01（ユーザー情報）, INF-02（ロール情報）, INF-08（ログイン失敗カウント）, INF-09（ロックアウト状態）, INF-03（アクセストークン）, INF-04（リフレッシュトークン） |
 | 関連条件 | CND-02（登録済みメールアドレスに紐付く認証方式が存在しパスワードが一致すること）, CND-03（メール確認済みであること）, CND-04（無効化済み・削除済みでないこと）, CND-05（ロックアウト中でないこと） |
 | 事後状態 | STM-02.認証済み |
@@ -57,7 +57,7 @@
 **E2. ロックアウト中の場合（ステップ3）**
 
 - a. システムは処理を中断する
-- b. システムは429 (Too Many Requests)、`application/problem+json`、`type: https://example.com/probs/account-locked`、`error_code: account_locked`、`retry_after: <解除時刻>` を返す
+- b. システムは429 (Too Many Requests)、`application/problem+json`、`type: https://example.com/probs/account-locked`、`error_code: account_locked`、`retry_after: <解除までの秒数>`（VAR-11）を返す
 - c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "login", msg: "ロックアウト中のログイン試行", lvl: "WARNING" }`。NFR-08）
 
 **E3. ユーザーが存在しない場合（ステップ4）**
@@ -149,7 +149,7 @@ sequenceDiagram
   Redis-->>UseCase: lockoutStatus
   alt E2: ロックアウト中
   UseCase-->>LoginAPI: AccountLockedError
-  LoginAPI-->>User: 429 Too Many Requests<br/>application/problem+json<br/>type: .../account-locked<br/>error_code: account_locked<br/>retry_after: <解除時刻>
+  LoginAPI-->>User: 429 Too Many Requests<br/>application/problem+json<br/>type: .../account-locked<br/>error_code: account_locked<br/>retry_after: <解除までの秒数>
   end
   UseCase->>UserRepo: findByEmail(email, excludeDeleted: true)
   UserRepo-->>UseCase: result

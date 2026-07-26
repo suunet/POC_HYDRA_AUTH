@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
 	"embed"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,7 +30,9 @@ type Deps struct {
 	Limiter       command.RateLimiter
 	VerifyLimiter command.RateLimiter
 	ResendLimiter command.RateLimiter
+	LoginLockout  command.Lockout
 	Mailer        command.Mailer
+	JWTSigningKey *rsa.PrivateKey
 }
 
 func NewModule(deps Deps) *Module {
@@ -37,9 +40,10 @@ func NewModule(deps Deps) *Module {
 	register := command.NewRegisterAccountHandler(users, deps.Limiter, deps.Mailer)
 	verify := command.NewVerifyEmailHandler(users, deps.VerifyLimiter)
 	resend := command.NewResendEmailVerificationHandler(users, deps.ResendLimiter, deps.Mailer)
+	login := command.NewLoginHandler(users, deps.LoginLockout, deps.JWTSigningKey)
 	return &Module{
 		pgxDb:   deps.PgxDb,
-		handler: apihttp.NewHandler(register, verify, resend),
+		handler: apihttp.NewHandler(register, verify, resend, login),
 	}
 }
 

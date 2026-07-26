@@ -19,6 +19,19 @@ type AuthEmailConfirmationToken struct {
 	CreatedAt time.Time
 }
 
+type AuthRefreshToken struct {
+	TokenID          uuid.UUID
+	UserUuid         uuid.UUID
+	FamilyID         uuid.UUID
+	ParentTokenID    *uuid.UUID
+	TokenHash        string
+	ExpiresAt        time.Time
+	UsedAt           *time.Time
+	RevokedAt        *time.Time
+	RevocationReason *string
+	CreatedAt        time.Time
+}
+
 type AuthUser struct {
 	UserUuid     uuid.UUID
 	Email        string

@@ -56,6 +56,72 @@ paths:
                 type: https://example.com/probs/mail-delivery-error
                 title: Service Unavailable
                 status: 503
+  /auth/login:
+    post:
+      summary: ログインする
+      operationId: login
+      tags:
+        - commands
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 認証成功（UC-005・STM-02.認証済み。アクセストークン〔JWT RS256〕とリフレッシュトークンを返す）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginTokens'
+        '400':
+          description: メールアドレス形式不正（E1=validation-error）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/validation-error
+                title: Bad Request
+                status: 400
+        '401':
+          description: 認証失敗（E3=ユーザー不存在・E4=パスワード不一致。列挙防止のため同一応答）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/authentication-failed
+                title: Unauthorized
+                status: 401
+        '403':
+          description: メール未確認（E5=email-not-verified）または無効化済み（E6=account-disabled）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/email-not-verified
+                title: Forbidden
+                status: 403
+        '429':
+          description: ロックアウト中（E2・NFR-03。10回失敗で15分・retry_afterは解除までの秒数・VAR-11）
+          headers:
+            Retry-After:
+              description: 解除までの秒数（bodyのretry_afterと同値）
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/account-locked
+                title: Too Many Requests
+                status: 429
+                error_code: account_locked
+                retry_after: 780
   /auth/email-verify:
     post:
       summary: メールアドレスを確認する
@@ -156,6 +222,32 @@ components:
           minLength: 15
           maxLength: 64
           description: VAR-02（最小15文字・最大64文字・文字種の混在強制なし）
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: VAR-01（RFC5322準拠・最大254文字）
+        password:
+          type: string
+          description: 認証用パスワード（照合はbcrypt・CND-02）
+    LoginTokens:
+      type: object
+      required:
+        - access_token
+        - refresh_token
+      properties:
+        access_token:
+          type: string
+          description: JWT（RS256・INF-03）。sub/roles/exp（VAR-03=15分）クレームを含む
+        refresh_token:
+          type: string
+          description: opaque token（INF-04・NFR-14。base64url。DBにはSHA-256ハッシュのみ保存）
     EmailVerifyResendRequest:
       type: object
       required:
@@ -196,7 +288,10 @@ components:
           type: string
         retry_after:
           type: integer
-          description: レート制限超過時の再試行可能秒数（E4）
+          description: レート制限・ロックアウト超過時の再試行可能秒数（E4・VAR-11）
+        error_code:
+          type: string
+          description: 拡張エラーコード（VAR-11＝account_locked 等）
         revocation_reason:
           type: string
           description: セッション失効理由コード（VAR-10・本APIでは未使用）
