@@ -77,10 +77,12 @@ func ProblemErrorHandler(err error, c echo.Context) {
 		return
 	}
 
+	// NOTE: statusの決定は StatusFromError に一本化（requestlogと同一の値になることを構造的に保証・BJ c8#1）。
+	// 本switchはTitle/Detail/Type整形とログのみを担う
 	problem := Problem{
 		Type:   "about:blank",
-		Title:  http.StatusText(http.StatusInternalServerError),
-		Status: http.StatusInternalServerError,
+		Title:  http.StatusText(StatusFromError(err)),
+		Status: StatusFromError(err),
 	}
 
 	var pe *ProblemError
@@ -89,13 +91,11 @@ func ProblemErrorHandler(err error, c echo.Context) {
 	case errors.As(err, &pe):
 		problem = pe.Problem
 	case errors.As(err, &he):
-		problem.Status = he.Code
-		problem.Title = http.StatusText(he.Code)
 		if msg, ok := he.Message.(string); ok && msg != problem.Title {
 			problem.Detail = msg
 		}
 		// NOTE: バインド段階の400もvalidation-errorとして整形する（独自判断: structure.md §4）
-		if he.Code == http.StatusBadRequest {
+		if problem.Status == http.StatusBadRequest {
 			problem.Type = ProblemTypeBase + "validation-error"
 			applog.FromContext(c.Request().Context()).WarnContext(c.Request().Context(), "リクエスト解釈エラー", "ctx", "http")
 		}
