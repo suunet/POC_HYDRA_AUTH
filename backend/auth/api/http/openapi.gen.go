@@ -64,6 +64,12 @@ type Problem struct {
 	Type string `json:"type"`
 }
 
+// RefreshTokenRequest defines model for RefreshTokenRequest.
+type RefreshTokenRequest struct {
+	// RefreshToken opaque リフレッシュトークン（平文。INF-04はSHA-256ハッシュのみ保存し照合する・UC-006）
+	RefreshToken string `json:"refresh_token"`
+}
+
 // RegisterAccountRequest defines model for RegisterAccountRequest.
 type RegisterAccountRequest struct {
 	// Email VAR-01（RFC5322準拠・最大254文字）
@@ -85,6 +91,9 @@ type LoginJSONRequestBody = LoginRequest
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
 
+// RefreshTokenJSONRequestBody defines body for RefreshToken for application/json ContentType.
+type RefreshTokenJSONRequestBody = RefreshTokenRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// メールアドレスを確認する
@@ -99,6 +108,9 @@ type ServerInterface interface {
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx echo.Context) error
+	// トークンを再発行する
+	// (POST /auth/token/refresh)
+	RefreshToken(ctx echo.Context) error
 }
 
 // ServerInterfaceWrapper converts echo contexts to parameters.
@@ -142,6 +154,15 @@ func (w *ServerInterfaceWrapper) RegisterAccount(ctx echo.Context) error {
 	return err
 }
 
+// RefreshToken converts echo context to params.
+func (w *ServerInterfaceWrapper) RefreshToken(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.RefreshToken(ctx)
+	return err
+}
+
 // This is a simple interface which specifies echo.Route addition functions which
 // are present on both echo.Echo and echo.Group, since we want to allow using
 // either of them for path registration
@@ -174,6 +195,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.POST(baseURL+"/auth/email-verify/resend", wrapper.ResendEmailVerification)
 	router.POST(baseURL+"/auth/login", wrapper.Login)
 	router.POST(baseURL+"/auth/register", wrapper.RegisterAccount)
+	router.POST(baseURL+"/auth/token/refresh", wrapper.RefreshToken)
 
 }
 
@@ -373,6 +395,32 @@ func (response RegisterAccount503ApplicationProblemPlusJSONResponse) VisitRegist
 	return json.NewEncoder(w).Encode(response)
 }
 
+type RefreshTokenRequestObject struct {
+	Body *RefreshTokenJSONRequestBody
+}
+
+type RefreshTokenResponseObject interface {
+	VisitRefreshTokenResponse(w http.ResponseWriter) error
+}
+
+type RefreshToken200JSONResponse LoginTokens
+
+func (response RefreshToken200JSONResponse) VisitRefreshTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type RefreshToken401ApplicationProblemPlusJSONResponse Problem
+
+func (response RefreshToken401ApplicationProblemPlusJSONResponse) VisitRefreshTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// メールアドレスを確認する
@@ -387,6 +435,9 @@ type StrictServerInterface interface {
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx context.Context, request RegisterAccountRequestObject) (RegisterAccountResponseObject, error)
+	// トークンを再発行する
+	// (POST /auth/token/refresh)
+	RefreshToken(ctx context.Context, request RefreshTokenRequestObject) (RefreshTokenResponseObject, error)
 }
 
 type StrictHandlerFunc = strictecho.StrictEchoHandlerFunc
@@ -511,6 +562,35 @@ func (sh *strictHandler) RegisterAccount(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(RegisterAccountResponseObject); ok {
 		return validResponse.VisitRegisterAccountResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// RefreshToken operation middleware
+func (sh *strictHandler) RefreshToken(ctx echo.Context) error {
+	var request RefreshTokenRequestObject
+
+	var body RefreshTokenJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.RefreshToken(ctx.Request().Context(), request.(RefreshTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RefreshToken")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(RefreshTokenResponseObject); ok {
+		return validResponse.VisitRefreshTokenResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

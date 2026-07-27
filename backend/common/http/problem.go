@@ -53,6 +53,12 @@ func (e *ProblemError) WithErrorCode(code string) *ProblemError {
 	return e
 }
 
+// WithRevocationReason はセッション失効理由コード（VAR-10）を拡張フィールドに載せる（UC-006 E4/E5/E6）。
+func (e *ProblemError) WithRevocationReason(reason string) *ProblemError {
+	e.Problem.RevocationReason = reason
+	return e
+}
+
 // StatusFromError はハンドラが返したエラーから最終的なHTTPステータスを求める。
 // strict-serverはエラー時に応答を書かず後段の HTTPErrorHandler が status を確定するため、
 // ミドルウェア（requestlog）が応答書込前に実 status を知るのに使う（ProblemErrorHandler と同一の決定）。

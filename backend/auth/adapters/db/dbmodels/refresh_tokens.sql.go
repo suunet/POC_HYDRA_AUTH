@@ -46,42 +46,6 @@ func (q *Queries) GetRefreshTokenByHash(ctx context.Context, tokenHash string) (
 	return i, err
 }
 
-const getRefreshTokenByHashForUpdate = `-- name: GetRefreshTokenByHashForUpdate :one
-SELECT
-	token_id,
-	user_uuid,
-	family_id,
-	parent_token_id,
-	token_hash,
-	expires_at,
-	used_at,
-	revoked_at,
-	revocation_reason,
-	created_at
-FROM auth.refresh_tokens
-WHERE token_hash = $1
-FOR UPDATE
-`
-
-// NOTE: UC-006 Q-5: 対象行を施錠し同時リフレッシュ（二重消費）を直列化する
-func (q *Queries) GetRefreshTokenByHashForUpdate(ctx context.Context, tokenHash string) (AuthRefreshToken, error) {
-	row := q.db.QueryRow(ctx, getRefreshTokenByHashForUpdate, tokenHash)
-	var i AuthRefreshToken
-	err := row.Scan(
-		&i.TokenID,
-		&i.UserUuid,
-		&i.FamilyID,
-		&i.ParentTokenID,
-		&i.TokenHash,
-		&i.ExpiresAt,
-		&i.UsedAt,
-		&i.RevokedAt,
-		&i.RevocationReason,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const insertRefreshToken = `-- name: InsertRefreshToken :exec
 INSERT INTO auth.refresh_tokens (
 	token_id,
@@ -116,16 +80,22 @@ func (q *Queries) InsertRefreshToken(ctx context.Context, arg InsertRefreshToken
 	return err
 }
 
-const markRefreshTokenUsed = `-- name: MarkRefreshTokenUsed :exec
+const markRefreshTokenUsed = `-- name: MarkRefreshTokenUsed :execrows
 UPDATE auth.refresh_tokens
 SET used_at = now()
 WHERE token_id = $1
+  AND used_at IS NULL
 `
 
-// NOTE: UC-006 ローテーション: 使用済みは使用時刻で表す（INF-04・used_at＝消費）
-func (q *Queries) MarkRefreshTokenUsed(ctx context.Context, tokenID uuid.UUID) error {
-	_, err := q.db.Exec(ctx, markRefreshTokenUsed, tokenID)
-	return err
+// NOTE: UC-006 ローテーション: 使用済みは使用時刻で表す（INF-04・used_at＝消費）。
+// used_at IS NULL 条件付きの check-and-set で二重消費を直列化する（更新0行＝並行リクエストに先を越された
+// ＝再利用相当。呼出側は family一括失効へ倒す・NFR-14・BJ c4#1）
+func (q *Queries) MarkRefreshTokenUsed(ctx context.Context, tokenID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, markRefreshTokenUsed, tokenID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const revokeRefreshToken = `-- name: RevokeRefreshToken :exec
@@ -133,6 +103,7 @@ UPDATE auth.refresh_tokens
 SET revoked_at = now(),
     revocation_reason = $2
 WHERE token_id = $1
+  AND revoked_at IS NULL
 `
 
 type RevokeRefreshTokenParams struct {
@@ -140,7 +111,8 @@ type RevokeRefreshTokenParams struct {
 	RevocationReason *string
 }
 
-// NOTE: UC-006 E3/E5/E6: 当該トークンのみ失効（revoked_at＝失効・used_atと別概念）
+// NOTE: UC-006 E3/E5/E6: 当該トークンのみ失効（revoked_at＝失効・used_atと別概念）。
+// family失効と対称に既失効は上書きしない（先行失効の理由コード保護・BJ c2#1）
 func (q *Queries) RevokeRefreshToken(ctx context.Context, arg RevokeRefreshTokenParams) error {
 	_, err := q.db.Exec(ctx, revokeRefreshToken, arg.TokenID, arg.RevocationReason)
 	return err

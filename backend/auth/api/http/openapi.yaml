@@ -122,6 +122,38 @@ paths:
                 status: 429
                 error_code: account_locked
                 retry_after: 780
+  /auth/token/refresh:
+    post:
+      summary: トークンを再発行する
+      operationId: refreshToken
+      tags:
+        - commands
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: 再発行成功（UC-006・ローテーション。新アクセストークン〔JWT RS256〕と新リフレッシュトークンを返す）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginTokens'
+        '401':
+          description: |
+            トークン検証失敗。E1/E2=invalid-token（形式不正・不存在）／E3=token-expired（期限切れ）／
+            E4=session-revoked〔token_reuse_detected・当該family一括失効〕／E5/E6=session-revoked〔account_deleted/account_disabled〕
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/session-revoked
+                title: Unauthorized
+                status: 401
+                revocation_reason: token_reuse_detected
   /auth/email-verify:
     post:
       summary: メールアドレスを確認する
@@ -248,6 +280,15 @@ components:
         refresh_token:
           type: string
           description: opaque token（INF-04・NFR-14。base64url。DBにはSHA-256ハッシュのみ保存）
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          description: opaque リフレッシュトークン（平文。INF-04はSHA-256ハッシュのみ保存し照合する・UC-006）
     EmailVerifyResendRequest:
       type: object
       required:

@@ -25,28 +25,14 @@ SELECT
 FROM auth.refresh_tokens
 WHERE token_hash = $1;
 
--- name: GetRefreshTokenByHashForUpdate :one
--- NOTE: UC-006 Q-5: 対象行を施錠し同時リフレッシュ（二重消費）を直列化する
-SELECT
-	token_id,
-	user_uuid,
-	family_id,
-	parent_token_id,
-	token_hash,
-	expires_at,
-	used_at,
-	revoked_at,
-	revocation_reason,
-	created_at
-FROM auth.refresh_tokens
-WHERE token_hash = $1
-FOR UPDATE;
-
--- name: MarkRefreshTokenUsed :exec
--- NOTE: UC-006 ローテーション: 使用済みは使用時刻で表す（INF-04・used_at＝消費）
+-- name: MarkRefreshTokenUsed :execrows
+-- NOTE: UC-006 ローテーション: 使用済みは使用時刻で表す（INF-04・used_at＝消費）。
+-- used_at IS NULL 条件付きの check-and-set で二重消費を直列化する（更新0行＝並行リクエストに先を越された
+-- ＝再利用相当。呼出側は family一括失効へ倒す・NFR-14・BJ c4#1）
 UPDATE auth.refresh_tokens
 SET used_at = now()
-WHERE token_id = $1;
+WHERE token_id = $1
+  AND used_at IS NULL;
 
 -- name: RevokeRefreshToken :exec
 -- NOTE: UC-006 E3/E5/E6: 当該トークンのみ失効（revoked_at＝失効・used_atと別概念）。

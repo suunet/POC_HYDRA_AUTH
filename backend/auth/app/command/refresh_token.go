@@ -17,6 +17,9 @@ import (
 var (
 	ErrInvalidRefreshToken = errors.New("invalid refresh token") // E1形式不正・E2不存在
 	ErrRefreshTokenExpired = errors.New("refresh token expired") // E3
+	// ErrRefreshTokenAlreadyUsed は RotateRefreshToken の条件付きMarkUsedが0行更新（並行リクエストに
+	// 先を越された＝再利用相当）だったことを表す。repo実装が返し、Handleがfamily一括失効へ倒す（NFR-14）。
+	ErrRefreshTokenAlreadyUsed = errors.New("refresh token already used")
 )
 
 // SessionRevokedError はセッション失効（E4再利用検知・E5削除・E6無効化）を表す。
@@ -114,7 +117,9 @@ func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (Re
 
 	// フロー5: 未使用確認（E4再利用検知）。UC-006 §3-5は used_at のみだが、既に revoked のトークン
 	// （forced_revocation/E5/E6等で失効済み）の再提示も窃取兆候として fail-safe に family一括失効へ倒す
-	// （独自判断・§4記録。安全側＝正当セッションは既に別トークンへローテーション済みで実害小）
+	// （独自判断・§4記録。安全側＝正当セッションは既に別トークンへローテーション済みで実害小）。
+	// NOTE: 既失効family（DB上の先行 revocation_reason が account_deleted 等）の再提示でも応答理由は
+	// token_reuse_detected に固定する。攻撃者へ内部状態（先行失効の種別）を漏らさないため意図的（BJ c4#2）。
 	if stored.UsedAt != nil || stored.RevokedAt != nil {
 		// E4: 同一familyを一括失効（Q-2/NFR-14）
 		if rerr := h.tokens.RevokeRefreshTokenFamily(ctx, stored.FamilyID, "token_reuse_detected"); rerr != nil {
@@ -162,6 +167,16 @@ func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (Re
 		ExpiresAt:     time.Now().Add(domain.RefreshTokenTTL),
 	}
 	if err := h.tokens.RotateRefreshToken(ctx, stored.TokenID, newToken); err != nil {
+		// 並行リフレッシュ競合: 条件付きMarkUsedが0行＝別リクエストが先に消費済み（再利用相当）。
+		// 読取時点では未使用でも、ここで初めて競合を検知する（直列化ポイント）。E4と同じくfamily一括失効へ倒す
+		if errors.Is(err, ErrRefreshTokenAlreadyUsed) {
+			if rerr := h.tokens.RevokeRefreshTokenFamily(ctx, stored.FamilyID, "token_reuse_detected"); rerr != nil {
+				return fail("could not revoke token family", rerr)
+			}
+			logger.Log(ctx, applog.LevelCritical, "リフレッシュトークン再利用検知（並行回転競合）・当該family（チェーン）のセッション無効化",
+				"user_id", stored.UserUUID.String(), "family_id", stored.FamilyID.String())
+			return RefreshResult{}, &SessionRevokedError{Reason: "token_reuse_detected"}
+		}
 		return fail("could not rotate refresh token", err)
 	}
 
