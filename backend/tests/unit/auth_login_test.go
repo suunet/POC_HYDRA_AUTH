@@ -97,6 +97,7 @@ func newLoginTestEcho(t *testing.T, repo *fakeLoginRepository, lockout *fakeLock
 		command.NewVerifyEmailHandler(&fakeTokenRepository{}, &fakeRateLimiter{blocked: map[string]bool{}}),
 		command.NewResendEmailVerificationHandler(d.resendRepo, d.limiter, d.mailer),
 		command.NewLoginHandler(repo, lockout, key),
+		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
 	))
 	return e
 }

@@ -30,6 +30,9 @@ type fakeRefreshRepository struct {
 	userOK  bool
 	userErr error
 
+	// rotateErr は RotateRefreshToken が返すエラー（並行回転競合＝ErrRefreshTokenAlreadyUsed の模擬用）
+	rotateErr error
+
 	// 記録
 	rotated       []command.RotationResult // MarkUsed＋新規保存の呼び出し
 	revokedSingle []uuid.UUID
@@ -51,6 +54,9 @@ func (f *fakeRefreshRepository) GetUserForRefresh(ctx context.Context, userUUID 
 }
 
 func (f *fakeRefreshRepository) RotateRefreshToken(ctx context.Context, oldTokenID uuid.UUID, newToken command.RefreshTokenRecord) error {
+	if f.rotateErr != nil {
+		return f.rotateErr
+	}
 	f.rotated = append(f.rotated, command.RotationResult{OldTokenID: oldTokenID, NewFamilyID: newToken.FamilyID})
 	return nil
 }
@@ -161,6 +167,29 @@ func TestUC006_Refresh_Reuse_RevokesFamily(t *testing.T) {
 	// 監査ログはCRITICAL・family_id併記（NFR-08・UC-006 §6・BJ c3#1/#5）
 	assert.Contains(t, buf.String(), "CRITICAL", "再利用検知はCRITICALレベル")
 	assert.Contains(t, buf.String(), familyID.String(), "family_idをlog contextに併記")
+}
+
+// UC-006 E4（並行競合）: 読取時は未使用でも Rotate の条件付きMarkUsedが0行（先を越された）→ 再利用検知・family一括失効
+func TestUC006_Refresh_ConcurrentRotationConflict_RevokesFamily(t *testing.T) {
+	ctx, buf := refreshCtx()
+	userUUID := uuid.New()
+	familyID := uuid.New()
+	repo := &fakeRefreshRepository{
+		record:    validStored(userUUID, familyID), // 読取時点は未使用
+		found:     true,
+		user:      command.RefreshUser{UserUUID: userUUID, Status: domain.StatusInactive, Roles: []string{"user"}},
+		userOK:    true,
+		rotateErr: command.ErrRefreshTokenAlreadyUsed, // 回転時に競合検知
+	}
+	h, _ := newRefreshHandler(t, repo)
+
+	_, err := h.Handle(ctx, "raced")
+	var revoked *command.SessionRevokedError
+	require.ErrorAs(t, err, &revoked)
+	assert.Equal(t, "token_reuse_detected", revoked.Reason)
+	assert.Equal(t, []uuid.UUID{familyID}, repo.revokedFamily, "競合検知でfamily一括失効")
+	assert.Contains(t, buf.String(), "CRITICAL", "並行競合もCRITICALで監査")
+	assert.Contains(t, buf.String(), familyID.String())
 }
 
 // UC-006 E1: 空トークン（形式不正）は invalid-token・ローテーション/失効なし

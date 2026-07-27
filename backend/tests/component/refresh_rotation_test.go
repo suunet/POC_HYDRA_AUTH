@@ -30,8 +30,8 @@ func seedRefreshToken(t *testing.T, ctx context.Context, userUUID, familyID uuid
 	return plain, tokenID
 }
 
-// UC-006: MarkRefreshTokenUsed は used_at を記録し、GetRefreshTokenByHashForUpdate で読める
-func TestUC006_RefreshQueries_MarkUsed_AndForUpdateRead(t *testing.T) {
+// UC-006: 条件付きMarkRefreshTokenUsed は未使用時のみ used_at を記録し1行更新、既使用は0行（二重消費の直列化・BJ c4#1）
+func TestUC006_RefreshQueries_MarkUsed_ConditionalOnUnused(t *testing.T) {
 	ctx := context.Background()
 	email := uniqueEmail(t)
 	seedLoginUser(t, ctx, email, domain.StatusInactive)
@@ -40,16 +40,24 @@ func TestUC006_RefreshQueries_MarkUsed_AndForUpdateRead(t *testing.T) {
 	familyID := uuid.New()
 	plain, tokenID := seedRefreshToken(t, ctx, row.UserUuid, familyID, nil)
 
-	// クエリが有効で1行返ること（FOR UPDATEの直列化検証はサイクル5の同時リフレッシュで実施）
-	got, err := dbmodels.New(pool).GetRefreshTokenByHashForUpdate(ctx, domain.HashRefreshToken(plain))
+	got, err := dbmodels.New(pool).GetRefreshTokenByHash(ctx, domain.HashRefreshToken(plain))
 	require.NoError(t, err)
 	assert.Equal(t, tokenID, got.TokenID)
 	assert.Nil(t, got.UsedAt, "初期は未使用")
 
-	require.NoError(t, dbmodels.New(pool).MarkRefreshTokenUsed(ctx, tokenID))
-	after, err := dbmodels.New(pool).GetRefreshTokenByHashForUpdate(ctx, domain.HashRefreshToken(plain))
+	// 1回目: 未使用→1行更新
+	affected, err := dbmodels.New(pool).MarkRefreshTokenUsed(ctx, tokenID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), affected, "未使用なら1行更新")
+
+	after, err := dbmodels.New(pool).GetRefreshTokenByHash(ctx, domain.HashRefreshToken(plain))
 	require.NoError(t, err)
 	assert.NotNil(t, after.UsedAt, "used_atが記録される")
+
+	// 2回目: 既使用→0行（並行リクエストに先を越された側＝再利用検知の起点）
+	again, err := dbmodels.New(pool).MarkRefreshTokenUsed(ctx, tokenID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), again, "既使用は0行更新（条件付きcheck-and-set）")
 }
 
 // UC-006 E4: RevokeRefreshTokenFamily は同一familyの全レコードをrevokeし、他familyは残す
