@@ -126,7 +126,7 @@ func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (Re
 			return fail("could not revoke token family", rerr)
 		}
 		logger.Log(ctx, applog.LevelCritical, "リフレッシュトークン再利用検知・当該family（チェーン）のセッション無効化",
-			"user_id", stored.UserUUID.String(), "family_id", stored.FamilyID.String())
+			"user_id", stored.UserUUID.String(), "family_id", stored.FamilyID.String(), "detected_by", "reuse_presentation")
 		return RefreshResult{}, &SessionRevokedError{Reason: "token_reuse_detected"}
 	}
 
@@ -173,8 +173,10 @@ func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (Re
 			if rerr := h.tokens.RevokeRefreshTokenFamily(ctx, stored.FamilyID, "token_reuse_detected"); rerr != nil {
 				return fail("could not revoke token family", rerr)
 			}
-			logger.Log(ctx, applog.LevelCritical, "リフレッシュトークン再利用検知（並行回転競合）・当該family（チェーン）のセッション無効化",
-				"user_id", stored.UserUUID.String(), "family_id", stored.FamilyID.String())
+			// NOTE: 監査ログmsgは正本（UC-006 §6・BUC-U05）に一致させる（読取検知と同一E4事象＝同一msg・NFR-08・BJ c5#1/c1#1）。
+			// 検知経路の区別は構造化フィールド detected_by で表す（msg正本を割らない）
+			logger.Log(ctx, applog.LevelCritical, "リフレッシュトークン再利用検知・当該family（チェーン）のセッション無効化",
+				"user_id", stored.UserUUID.String(), "family_id", stored.FamilyID.String(), "detected_by", "concurrent_rotation")
 			return RefreshResult{}, &SessionRevokedError{Reason: "token_reuse_detected"}
 		}
 		return fail("could not rotate refresh token", err)

@@ -55,7 +55,7 @@ type Problem struct {
 	// RetryAfter レート制限・ロックアウト超過時の再試行可能秒数（E4・VAR-11）
 	RetryAfter *int `json:"retry_after,omitempty"`
 
-	// RevocationReason セッション失効理由コード（VAR-10・本APIでは未使用）
+	// RevocationReason セッション失効理由コード（VAR-10・UC-006の401 session-revokedで使用＝token_reuse_detected/account_deleted/account_disabled）
 	RevocationReason *string `json:"revocation_reason,omitempty"`
 	Status           int     `json:"status"`
 	Title            string  `json:"title"`

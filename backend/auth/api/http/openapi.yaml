@@ -335,4 +335,4 @@ components:
           description: 拡張エラーコード（VAR-11＝account_locked 等）
         revocation_reason:
           type: string
-          description: セッション失効理由コード（VAR-10・本APIでは未使用）
+          description: セッション失効理由コード（VAR-10・UC-006の401 session-revokedで使用＝token_reuse_detected/account_deleted/account_disabled）
