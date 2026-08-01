@@ -52,13 +52,15 @@ func newVerifyTestEchoWithLimiter(t *testing.T, repo *fakeTokenRepository, limit
 	t.Helper()
 	d := newTestDeps()
 	e := commonhttp.NewEcho(applog.New(&bytes.Buffer{}, "auth-service"))
+	key := testSigningKey(nil)
 	apihttp.Register(e, apihttp.NewHandler(
 		command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer),
 		command.NewVerifyEmailHandler(repo, limiter),
 		command.NewResendEmailVerificationHandler(d.resendRepo, d.limiter, d.mailer),
-		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, testSigningKey(nil)),
-		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, testSigningKey(nil)),
-	))
+		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, key),
+		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
+		command.NewLogoutHandler(&fakeRefreshRepository{}),
+	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
 

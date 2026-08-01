@@ -14,6 +14,10 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+const (
+	BearerAuthScopes = "bearerAuth.Scopes"
+)
+
 // EmailVerifyRequest defines model for EmailVerifyRequest.
 type EmailVerifyRequest struct {
 	// Token メール確認トークン（平文。INF-06はSHA-256ハッシュのみ保存し照合する）
@@ -41,6 +45,12 @@ type LoginTokens struct {
 	AccessToken string `json:"access_token"`
 
 	// RefreshToken opaque token（INF-04・NFR-14。base64url。DBにはSHA-256ハッシュのみ保存）
+	RefreshToken string `json:"refresh_token"`
+}
+
+// LogoutRequest defines model for LogoutRequest.
+type LogoutRequest struct {
+	// RefreshToken 失効させるopaqueリフレッシュトークン（平文。INF-04はSHA-256ハッシュのみ保存し照合する・UC-007）
 	RefreshToken string `json:"refresh_token"`
 }
 
@@ -88,6 +98,9 @@ type ResendEmailVerificationJSONRequestBody = EmailVerifyResendRequest
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
+// LogoutJSONRequestBody defines body for Logout for application/json ContentType.
+type LogoutJSONRequestBody = LogoutRequest
+
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
 
@@ -105,6 +118,9 @@ type ServerInterface interface {
 	// ログインする
 	// (POST /auth/login)
 	Login(ctx echo.Context) error
+	// ログアウトする
+	// (POST /auth/logout)
+	Logout(ctx echo.Context) error
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx echo.Context) error
@@ -142,6 +158,17 @@ func (w *ServerInterfaceWrapper) Login(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.Login(ctx)
+	return err
+}
+
+// Logout converts echo context to params.
+func (w *ServerInterfaceWrapper) Logout(ctx echo.Context) error {
+	var err error
+
+	ctx.Set(BearerAuthScopes, []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.Logout(ctx)
 	return err
 }
 
@@ -194,6 +221,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.POST(baseURL+"/auth/email-verify", wrapper.VerifyEmail)
 	router.POST(baseURL+"/auth/email-verify/resend", wrapper.ResendEmailVerification)
 	router.POST(baseURL+"/auth/login", wrapper.Login)
+	router.POST(baseURL+"/auth/logout", wrapper.Logout)
 	router.POST(baseURL+"/auth/register", wrapper.RegisterAccount)
 	router.POST(baseURL+"/auth/token/refresh", wrapper.RefreshToken)
 
@@ -344,6 +372,48 @@ func (response Login429ApplicationProblemPlusJSONResponse) VisitLoginResponse(w 
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
+type LogoutRequestObject struct {
+	Body *LogoutJSONRequestBody
+}
+
+type LogoutResponseObject interface {
+	VisitLogoutResponse(w http.ResponseWriter) error
+}
+
+type Logout200Response struct {
+}
+
+func (response Logout200Response) VisitLogoutResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type Logout400ApplicationProblemPlusJSONResponse Problem
+
+func (response Logout400ApplicationProblemPlusJSONResponse) VisitLogoutResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type Logout401ResponseHeaders struct {
+	WWWAuthenticate string
+}
+
+type Logout401ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers Logout401ResponseHeaders
+}
+
+func (response Logout401ApplicationProblemPlusJSONResponse) VisitLogoutResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
 type RegisterAccountRequestObject struct {
 	Body *RegisterAccountJSONRequestBody
 }
@@ -432,6 +502,9 @@ type StrictServerInterface interface {
 	// ログインする
 	// (POST /auth/login)
 	Login(ctx context.Context, request LoginRequestObject) (LoginResponseObject, error)
+	// ログアウトする
+	// (POST /auth/logout)
+	Logout(ctx context.Context, request LogoutRequestObject) (LogoutResponseObject, error)
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx context.Context, request RegisterAccountRequestObject) (RegisterAccountResponseObject, error)
@@ -533,6 +606,35 @@ func (sh *strictHandler) Login(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(LoginResponseObject); ok {
 		return validResponse.VisitLoginResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// Logout operation middleware
+func (sh *strictHandler) Logout(ctx echo.Context) error {
+	var request LogoutRequestObject
+
+	var body LogoutJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.Logout(ctx.Request().Context(), request.(LogoutRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Logout")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(LogoutResponseObject); ok {
+		return validResponse.VisitLogoutResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

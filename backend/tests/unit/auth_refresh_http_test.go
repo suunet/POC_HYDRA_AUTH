@@ -33,13 +33,15 @@ func newRefreshTestEcho(t *testing.T, repo *fakeRefreshRepository) http.Handler 
 	t.Helper()
 	d := newTestDeps()
 	e := commonhttp.NewEcho(applog.New(&bytes.Buffer{}, "auth-service"))
+	key := testSigningKey(t)
 	apihttp.Register(e, apihttp.NewHandler(
 		command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer),
 		command.NewVerifyEmailHandler(&fakeTokenRepository{}, &fakeRateLimiter{blocked: map[string]bool{}}),
 		command.NewResendEmailVerificationHandler(d.resendRepo, d.limiter, d.mailer),
-		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, testSigningKey(t)),
-		command.NewRefreshTokenHandler(repo, testSigningKey(t)),
-	))
+		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, key),
+		command.NewRefreshTokenHandler(repo, key),
+		command.NewLogoutHandler(&fakeRefreshRepository{}),
+	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
 

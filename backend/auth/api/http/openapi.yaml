@@ -154,6 +154,48 @@ paths:
                 title: Unauthorized
                 status: 401
                 revocation_reason: token_reuse_detected
+  /auth/logout:
+    post:
+      summary: ログアウトする
+      operationId: logout
+      tags:
+        - commands
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: ログアウトを受け付けた（UC-007・FR-07。当該RT1本のみ失効・冪等＝不存在/既失効/期限切れ/使用済みでも200。所有者不一致でも200〔情報漏洩防止〕）
+        '400':
+          description: リフレッシュトークン形式不正（E1=validation-error。資格情報はATのためRTは入力バリデーション扱い）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/validation-error
+                title: Bad Request
+                status: 400
+        '401':
+          description: アクセストークン検証失敗（M1・FR-19。欠落/形式不正/署名不正/期限切れを区別せず一様）
+          headers:
+            WWW-Authenticate:
+              description: FR-19ミドルウェア経由の401では常に "Bearer"（RFC 6750）
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/invalid-token
+                title: Unauthorized
+                status: 401
   /auth/email-verify:
     post:
       summary: メールアドレスを確認する
@@ -237,7 +279,22 @@ paths:
                 title: Service Unavailable
                 status: 503
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: アクセストークン（INF-03・JWT RS256）。検証はFR-19ミドルウェア（失敗は401一様）
   schemas:
+    LogoutRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          description: 失効させるopaqueリフレッシュトークン（平文。INF-04はSHA-256ハッシュのみ保存し照合する・UC-007）
     RegisterAccountRequest:
       type: object
       required:

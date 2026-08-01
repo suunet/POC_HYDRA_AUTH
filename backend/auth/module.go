@@ -12,6 +12,7 @@ import (
 	apihttp "poc-app-hydra/backend/auth/api/http"
 	"poc-app-hydra/backend/auth/app/command"
 	"poc-app-hydra/backend/common"
+	commonhttp "poc-app-hydra/backend/common/http"
 	"poc-app-hydra/backend/common/module/contracts"
 )
 
@@ -19,8 +20,9 @@ import (
 var embedMigrations embed.FS
 
 type Module struct {
-	pgxDb   *pgxpool.Pool
-	handler *apihttp.Handler
+	pgxDb        *pgxpool.Pool
+	handler      *apihttp.Handler
+	jwtPublicKey *rsa.PublicKey
 }
 
 // NOTE: Limiter/Mailer はインターフェースで受け取る（呼び出し側が実装を選ぶ）。
@@ -42,9 +44,11 @@ func NewModule(deps Deps) *Module {
 	resend := command.NewResendEmailVerificationHandler(users, deps.ResendLimiter, deps.Mailer)
 	login := command.NewLoginHandler(users, deps.LoginLockout, deps.JWTSigningKey)
 	refresh := command.NewRefreshTokenHandler(users, deps.JWTSigningKey)
+	logout := command.NewLogoutHandler(users)
 	return &Module{
-		pgxDb:   deps.PgxDb,
-		handler: apihttp.NewHandler(register, verify, resend, login, refresh),
+		pgxDb:        deps.PgxDb,
+		handler:      apihttp.NewHandler(register, verify, resend, login, refresh, logout),
+		jwtPublicKey: &deps.JWTSigningKey.PublicKey,
 	}
 }
 
@@ -63,5 +67,5 @@ func (m *Module) RegisterContracts(c *contracts.Contracts) {
 }
 
 func (m *Module) RegisterHttp(e *echo.Echo) {
-	apihttp.Register(e, m.handler)
+	apihttp.Register(e, m.handler, commonhttp.JWTAuth(m.jwtPublicKey))
 }

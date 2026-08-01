@@ -96,13 +96,15 @@ func newAuthTestEcho(t *testing.T, d *testDeps) http.Handler {
 	t.Helper()
 	logger := applog.New(&bytes.Buffer{}, "auth-service")
 	e := commonhttp.NewEcho(logger)
+	key := testSigningKey(nil)
 	apihttp.Register(e, apihttp.NewHandler(
 		command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer),
 		command.NewVerifyEmailHandler(&fakeTokenRepository{}, &fakeRateLimiter{blocked: map[string]bool{}}),
 		command.NewResendEmailVerificationHandler(d.resendRepo, d.limiter, d.mailer),
-		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, testSigningKey(nil)),
-		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, testSigningKey(nil)),
-	))
+		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, key),
+		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
+		command.NewLogoutHandler(&fakeRefreshRepository{}),
+	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
 
