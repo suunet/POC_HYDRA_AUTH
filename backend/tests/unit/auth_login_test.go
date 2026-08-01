@@ -98,7 +98,8 @@ func newLoginTestEcho(t *testing.T, repo *fakeLoginRepository, lockout *fakeLock
 		command.NewResendEmailVerificationHandler(d.resendRepo, d.limiter, d.mailer),
 		command.NewLoginHandler(repo, lockout, key),
 		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
-	))
+		command.NewLogoutHandler(&fakeRefreshRepository{}),
+	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
 

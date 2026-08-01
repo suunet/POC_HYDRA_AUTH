@@ -19,10 +19,11 @@ type Handler struct {
 	resend   *command.ResendEmailVerificationHandler
 	login    *command.LoginHandler
 	refresh  *command.RefreshTokenHandler
+	logout   *command.LogoutHandler
 }
 
-func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler) *Handler {
-	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh}
+func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler) *Handler {
+	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout}
 }
 
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
@@ -150,6 +151,52 @@ func (h *Handler) RefreshToken(ctx context.Context, req RefreshTokenRequestObjec
 	}
 }
 
-func Register(e *echo.Echo, h *Handler) {
-	RegisterHandlers(e, NewStrictHandler(h, nil))
+func (h *Handler) Logout(ctx context.Context, req LogoutRequestObject) (LogoutResponseObject, error) {
+	// CND-06: FR-19ミドルウェア通過済みの認証情報を受け取る。未経由（配線欠落）はfail-closedで401一様。
+	// NOTE: 本ガードはM1（ミドルウェアが401＋WWW-Authenticateを担う）ではなく配線欠落の安全網のため、
+	// ヘッダは付与しない（到達＝Register配線のバグ）。認証ガードを入力検証より先に評価する
+	claims, ok := commonhttp.AuthClaimsFromContext(ctx)
+	if !ok {
+		return nil, commonhttp.NewProblemError(http.StatusUnauthorized, "invalid-token", "アクセストークンが無効です")
+	}
+
+	if req.Body == nil {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
+	}
+
+	err := h.logout.Handle(ctx, req.Body.RefreshToken, claims.UserID)
+	switch {
+	case err == nil:
+		// UC-007: A1不存在・E2所有者不一致・冪等失効いずれも200同一応答（情報漏洩防止）
+		return Logout200Response{}, nil
+	case errors.Is(err, command.ErrRefreshTokenFormatInvalid):
+		// E1: RTは入力ペイロード（資格情報はAT）のためバリデーション違反=400
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リフレッシュトークンが必要です")
+	default:
+		return nil, err
+	}
+}
+
+// protectedRouter は生成コードの EchoRouter を満たす薄いアダプタ。保護パスの登録時のみ
+// FR-19ミドルウェアをルート単位で注入する（echo全体へのUse適用＝他ルートへの副作用を避ける）。
+// WARNING: 保護マップはopenapiの `security` 宣言と二重管理（乖離はunitのトリップワイヤテストが検知）。
+// オーバーライドはPOSTのみ＝非POSTの保護ルートを追加する場合は該当メソッドの追加実装が必要
+type protectedRouter struct {
+	*echo.Echo
+	protected map[string]echo.MiddlewareFunc
+}
+
+func (r protectedRouter) POST(path string, handler echo.HandlerFunc, middleware ...echo.MiddlewareFunc) *echo.Route {
+	if mw, ok := r.protected[path]; ok {
+		middleware = append(middleware, mw)
+	}
+	return r.Echo.POST(path, handler, middleware...)
+}
+
+// Register は認証必須ルート（openapi security: bearerAuth）へ jwtAuth を適用して全ルートを登録する。
+func Register(e *echo.Echo, h *Handler, jwtAuth echo.MiddlewareFunc) {
+	router := protectedRouter{Echo: e, protected: map[string]echo.MiddlewareFunc{
+		"/auth/logout": jwtAuth, // SCR-06（UC-007・CND-06）
+	}}
+	RegisterHandlersWithBaseURL(router, NewStrictHandler(h, nil), "")
 }
