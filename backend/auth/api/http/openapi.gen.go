@@ -18,6 +18,15 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
+// ChangePasswordRequest defines model for ChangePasswordRequest.
+type ChangePasswordRequest struct {
+	// CurrentPassword 現在のパスワード（CND-16照合用。形式検証はしない＝照合失敗として403へ）
+	CurrentPassword string `json:"current_password"`
+
+	// NewPassword VAR-02（最小15・最大64文字・Unicode許容・UTF-8で72バイト以下）
+	NewPassword string `json:"new_password"`
+}
+
 // EmailVerifyRequest defines model for EmailVerifyRequest.
 type EmailVerifyRequest struct {
 	// Token メール確認トークン（平文。INF-06はSHA-256ハッシュのみ保存し照合する）
@@ -52,6 +61,12 @@ type LoginTokens struct {
 type LogoutRequest struct {
 	// RefreshToken 失効させるopaqueリフレッシュトークン（平文。INF-04はSHA-256ハッシュのみ保存し照合する・UC-007）
 	RefreshToken string `json:"refresh_token"`
+}
+
+// PasswordChangeResponse defines model for PasswordChangeResponse.
+type PasswordChangeResponse struct {
+	// RevocationReason 常に password_changed（VAR-10・FR-10。クライアントの再ログイン誘導用。他フィールドなし）
+	RevocationReason string `json:"revocation_reason"`
 }
 
 // Problem RFC 9457 Problem Details（NFR-06）。retry_after・revocation_reason は拡張フィールド
@@ -101,6 +116,9 @@ type LoginJSONRequestBody = LoginRequest
 // LogoutJSONRequestBody defines body for Logout for application/json ContentType.
 type LogoutJSONRequestBody = LogoutRequest
 
+// ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
+type ChangePasswordJSONRequestBody = ChangePasswordRequest
+
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
 
@@ -121,6 +139,9 @@ type ServerInterface interface {
 	// ログアウトする
 	// (POST /auth/logout)
 	Logout(ctx echo.Context) error
+	// パスワードを変更する
+	// (PUT /auth/password)
+	ChangePassword(ctx echo.Context) error
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx echo.Context) error
@@ -169,6 +190,17 @@ func (w *ServerInterfaceWrapper) Logout(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.Logout(ctx)
+	return err
+}
+
+// ChangePassword converts echo context to params.
+func (w *ServerInterfaceWrapper) ChangePassword(ctx echo.Context) error {
+	var err error
+
+	ctx.Set(BearerAuthScopes, []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ChangePassword(ctx)
 	return err
 }
 
@@ -222,6 +254,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.POST(baseURL+"/auth/email-verify/resend", wrapper.ResendEmailVerification)
 	router.POST(baseURL+"/auth/login", wrapper.Login)
 	router.POST(baseURL+"/auth/logout", wrapper.Logout)
+	router.PUT(baseURL+"/auth/password", wrapper.ChangePassword)
 	router.POST(baseURL+"/auth/register", wrapper.RegisterAccount)
 	router.POST(baseURL+"/auth/token/refresh", wrapper.RefreshToken)
 
@@ -414,6 +447,67 @@ func (response Logout401ApplicationProblemPlusJSONResponse) VisitLogoutResponse(
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
+type ChangePasswordRequestObject struct {
+	Body *ChangePasswordJSONRequestBody
+}
+
+type ChangePasswordResponseObject interface {
+	VisitChangePasswordResponse(w http.ResponseWriter) error
+}
+
+type ChangePassword200JSONResponse PasswordChangeResponse
+
+func (response ChangePassword200JSONResponse) VisitChangePasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ChangePassword400ApplicationProblemPlusJSONResponse Problem
+
+func (response ChangePassword400ApplicationProblemPlusJSONResponse) VisitChangePasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ChangePassword401ResponseHeaders struct {
+	WWWAuthenticate string
+}
+
+type ChangePassword401ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers ChangePassword401ResponseHeaders
+}
+
+func (response ChangePassword401ApplicationProblemPlusJSONResponse) VisitChangePasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ChangePassword403ApplicationProblemPlusJSONResponse Problem
+
+func (response ChangePassword403ApplicationProblemPlusJSONResponse) VisitChangePasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ChangePassword500ApplicationProblemPlusJSONResponse Problem
+
+func (response ChangePassword500ApplicationProblemPlusJSONResponse) VisitChangePasswordResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type RegisterAccountRequestObject struct {
 	Body *RegisterAccountJSONRequestBody
 }
@@ -505,6 +599,9 @@ type StrictServerInterface interface {
 	// ログアウトする
 	// (POST /auth/logout)
 	Logout(ctx context.Context, request LogoutRequestObject) (LogoutResponseObject, error)
+	// パスワードを変更する
+	// (PUT /auth/password)
+	ChangePassword(ctx context.Context, request ChangePasswordRequestObject) (ChangePasswordResponseObject, error)
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx context.Context, request RegisterAccountRequestObject) (RegisterAccountResponseObject, error)
@@ -635,6 +732,35 @@ func (sh *strictHandler) Logout(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(LogoutResponseObject); ok {
 		return validResponse.VisitLogoutResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ChangePassword operation middleware
+func (sh *strictHandler) ChangePassword(ctx echo.Context) error {
+	var request ChangePasswordRequestObject
+
+	var body ChangePasswordJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ChangePassword(ctx.Request().Context(), request.(ChangePasswordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ChangePassword")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ChangePasswordResponseObject); ok {
+		return validResponse.VisitChangePasswordResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

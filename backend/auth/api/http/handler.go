@@ -14,16 +14,17 @@ import (
 )
 
 type Handler struct {
-	register *command.RegisterAccountHandler
-	verify   *command.VerifyEmailHandler
-	resend   *command.ResendEmailVerificationHandler
-	login    *command.LoginHandler
-	refresh  *command.RefreshTokenHandler
-	logout   *command.LogoutHandler
+	register       *command.RegisterAccountHandler
+	verify         *command.VerifyEmailHandler
+	resend         *command.ResendEmailVerificationHandler
+	login          *command.LoginHandler
+	refresh        *command.RefreshTokenHandler
+	logout         *command.LogoutHandler
+	changePassword *command.ChangePasswordHandler
 }
 
-func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler) *Handler {
-	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout}
+func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler, changePassword *command.ChangePasswordHandler) *Handler {
+	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout, changePassword: changePassword}
 }
 
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
@@ -179,10 +180,46 @@ func (h *Handler) Logout(ctx context.Context, req LogoutRequestObject) (LogoutRe
 	}
 }
 
+func (h *Handler) ChangePassword(ctx context.Context, req ChangePasswordRequestObject) (ChangePasswordResponseObject, error) {
+	// CND-06: FR-19ミドルウェア通過済みの認証情報を受け取る。未経由（配線欠落）はfail-closedで401一様。
+	// NOTE: 本ガードはM1（ミドルウェアが401＋WWW-Authenticateを担う）ではなく配線欠落の安全網（ヘッダなし）
+	claims, ok := commonhttp.AuthClaimsFromContext(ctx)
+	if !ok {
+		return nil, commonhttp.NewProblemError(http.StatusUnauthorized, "invalid-token", "アクセストークンが無効です")
+	}
+
+	// NOTE: strict handler経由ではBodyは常に非nil（兄弟ハンドラ共通の防御慣行として残置）
+	if req.Body == nil {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
+	}
+
+	err := h.changePassword.Handle(ctx, claims.UserID, req.Body.CurrentPassword, req.Body.NewPassword)
+	var revoked *command.SessionRevokedError
+	switch {
+	case err == nil:
+		// UC-010: 200に失効理由を含める（FR-10・再ログイン誘導）
+		return ChangePassword200JSONResponse{RevocationReason: command.RevocationReasonPasswordChanged}, nil
+	case errors.Is(err, domain.ErrInvalidPassword):
+		// E1: VAR-02違反（文字数・72バイト）
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "パスワードは15〜64文字かつUTF-8で72バイト以下で指定してください")
+	case errors.As(err, &revoked):
+		// E4/E5: 削除済み・無効化済み（トークン状態は変更しない）
+		return nil, commonhttp.NewProblemError(http.StatusUnauthorized, "session-revoked", "セッションが失効しました").
+			WithRevocationReason(revoked.Reason)
+	case errors.Is(err, command.ErrPasswordMismatch):
+		// E2: 現在パスワード不一致（401はJWT認証失敗と区別・BUC-U08備考）
+		return nil, commonhttp.NewProblemError(http.StatusForbidden, "password-mismatch", "現在のパスワードが一致しません")
+	default:
+		// E3ほか未分類の内部失敗（E3=Tx失敗はUseCaseが全ロールバック・ERROR記録済み。lookup障害・
+		// ハッシュ化失敗も同型で500へ丸める）。typeはUC-010指定のinternal-error
+		return nil, commonhttp.NewProblemError(http.StatusInternalServerError, "internal-error", "サーバ内部エラーが発生しました")
+	}
+}
+
 // protectedRouter は生成コードの EchoRouter を満たす薄いアダプタ。保護パスの登録時のみ
 // FR-19ミドルウェアをルート単位で注入する（echo全体へのUse適用＝他ルートへの副作用を避ける）。
 // WARNING: 保護マップはopenapiの `security` 宣言と二重管理（乖離はunitのトリップワイヤテストが検知）。
-// オーバーライドはPOSTのみ＝非POSTの保護ルートを追加する場合は該当メソッドの追加実装が必要
+// オーバーライドはPOST/PUTのみ＝他メソッドの保護ルートを追加する場合は該当メソッドの追加実装が必要
 type protectedRouter struct {
 	*echo.Echo
 	protected map[string]echo.MiddlewareFunc
@@ -195,10 +232,18 @@ func (r protectedRouter) POST(path string, handler echo.HandlerFunc, middleware 
 	return r.Echo.POST(path, handler, middleware...)
 }
 
+func (r protectedRouter) PUT(path string, handler echo.HandlerFunc, middleware ...echo.MiddlewareFunc) *echo.Route {
+	if mw, ok := r.protected[path]; ok {
+		middleware = append(middleware, mw)
+	}
+	return r.Echo.PUT(path, handler, middleware...)
+}
+
 // Register は認証必須ルート（openapi security: bearerAuth）へ jwtAuth を適用して全ルートを登録する。
 func Register(e *echo.Echo, h *Handler, jwtAuth echo.MiddlewareFunc) {
 	router := protectedRouter{Echo: e, protected: map[string]echo.MiddlewareFunc{
-		"/auth/logout": jwtAuth, // SCR-06（UC-007・CND-06）
+		"/auth/logout":   jwtAuth, // SCR-06（UC-007・CND-06）
+		"/auth/password": jwtAuth, // SCR-09（UC-010・CND-06）
 	}}
 	RegisterHandlersWithBaseURL(router, NewStrictHandler(h, nil), "")
 }

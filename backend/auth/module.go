@@ -45,9 +45,10 @@ func NewModule(deps Deps) *Module {
 	login := command.NewLoginHandler(users, deps.LoginLockout, deps.JWTSigningKey)
 	refresh := command.NewRefreshTokenHandler(users, deps.JWTSigningKey)
 	logout := command.NewLogoutHandler(users)
+	changePassword := command.NewChangePasswordHandler(users)
 	return &Module{
 		pgxDb:        deps.PgxDb,
-		handler:      apihttp.NewHandler(register, verify, resend, login, refresh, logout),
+		handler:      apihttp.NewHandler(register, verify, resend, login, refresh, logout, changePassword),
 		jwtPublicKey: &deps.JWTSigningKey.PublicKey,
 	}
 }

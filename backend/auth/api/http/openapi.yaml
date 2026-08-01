@@ -196,6 +196,75 @@ paths:
                 type: https://example.com/probs/invalid-token
                 title: Unauthorized
                 status: 401
+  /auth/password:
+    put:
+      summary: パスワードを変更する
+      operationId: changePassword
+      tags:
+        - commands
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: パスワード変更完了（UC-010・FR-10。当該ユーザーの全リフレッシュトークンを失効し再ログインを要求）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordChangeResponse'
+        '400':
+          description: 新パスワード強度不足（E1=validation-error・VAR-02〔15〜64文字・UTF-8で72バイト以下〕）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/validation-error
+                title: Bad Request
+                status: 400
+        '401':
+          description: |
+            アクセストークン検証失敗（M1・FR-19=invalid-token・一様）／
+            削除済み・無効化済みアカウント（E4/E5=session-revoked＋revocation_reason〔account_deleted/account_disabled〕・トークン状態は変更しない）
+          headers:
+            WWW-Authenticate:
+              description: FR-19ミドルウェア経由の401では常に "Bearer"（RFC 6750）
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/session-revoked
+                title: Unauthorized
+                status: 401
+                revocation_reason: account_deleted
+        '403':
+          description: 現在のパスワード不一致（E2=password-mismatch・CND-16。401はJWT認証失敗と区別）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/password-mismatch
+                title: Forbidden
+                status: 403
+        '500':
+          description: トランザクション失敗（E3=internal-error・全ロールバック済み）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/internal-error
+                title: Internal Server Error
+                status: 500
   /auth/email-verify:
     post:
       summary: メールアドレスを確認する
@@ -286,6 +355,28 @@ components:
       bearerFormat: JWT
       description: アクセストークン（INF-03・JWT RS256）。検証はFR-19ミドルウェア（失敗は401一様）
   schemas:
+    ChangePasswordRequest:
+      type: object
+      required:
+        - current_password
+        - new_password
+      properties:
+        current_password:
+          type: string
+          description: 現在のパスワード（CND-16照合用。形式検証はしない＝照合失敗として403へ）
+        new_password:
+          type: string
+          minLength: 15
+          maxLength: 64
+          description: VAR-02（最小15・最大64文字・Unicode許容・UTF-8で72バイト以下）
+    PasswordChangeResponse:
+      type: object
+      required:
+        - revocation_reason
+      properties:
+        revocation_reason:
+          type: string
+          description: 常に password_changed（VAR-10・FR-10。クライアントの再ログイン誘導用。他フィールドなし）
     LogoutRequest:
       type: object
       required:
