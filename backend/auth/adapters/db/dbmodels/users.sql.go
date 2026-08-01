@@ -182,3 +182,25 @@ func (q *Queries) TransitionUserStatus(ctx context.Context, arg TransitionUserSt
 	}
 	return result.RowsAffected(), nil
 }
+
+const updateUserPassword = `-- name: UpdateUserPassword :execrows
+UPDATE auth.users
+SET password_hash = $2,
+    updated_at = now()
+WHERE user_uuid = $1
+  AND deleted_at IS NULL
+`
+
+type UpdateUserPasswordParams struct {
+	UserUuid     uuid.UUID
+	PasswordHash string
+}
+
+// NOTE: UC-010: パスワード更新（削除済み除外）。0行=ユーザー不存在（削除レース）＝呼出側がTx全体を失敗させる
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateUserPassword, arg.UserUuid, arg.PasswordHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

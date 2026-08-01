@@ -136,3 +136,23 @@ func (q *Queries) RevokeRefreshTokenFamily(ctx context.Context, arg RevokeRefres
 	_, err := q.db.Exec(ctx, revokeRefreshTokenFamily, arg.FamilyID, arg.RevocationReason)
 	return err
 }
+
+const revokeRefreshTokensByUser = `-- name: RevokeRefreshTokensByUser :exec
+UPDATE auth.refresh_tokens
+SET revoked_at = now(),
+    revocation_reason = $2
+WHERE user_uuid = $1
+  AND revoked_at IS NULL
+`
+
+type RevokeRefreshTokensByUserParams struct {
+	UserUuid         uuid.UUID
+	RevocationReason *string
+}
+
+// NOTE: UC-010/FR-10: 当該ユーザーの全リフレッシュトークンを一括失効（family横断のuser単位）。
+// 既失効は上書きしない（先行失効の理由コード保護・単一/family失効と対称）
+func (q *Queries) RevokeRefreshTokensByUser(ctx context.Context, arg RevokeRefreshTokensByUserParams) error {
+	_, err := q.db.Exec(ctx, revokeRefreshTokensByUser, arg.UserUuid, arg.RevocationReason)
+	return err
+}
