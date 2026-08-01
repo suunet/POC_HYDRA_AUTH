@@ -160,6 +160,8 @@ func (h *Handler) Logout(ctx context.Context, req LogoutRequestObject) (LogoutRe
 		return nil, commonhttp.NewProblemError(http.StatusUnauthorized, "invalid-token", "アクセストークンが無効です")
 	}
 
+	// NOTE: strict handler経由ではBodyは常に非nil（Bind失敗は手前でエラー化）＝本ガードは到達不能。
+	// 兄弟ハンドラ共通の防御慣行として残置する
 	if req.Body == nil {
 		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
 	}

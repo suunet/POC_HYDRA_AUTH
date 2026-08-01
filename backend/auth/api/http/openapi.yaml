@@ -185,7 +185,7 @@ paths:
           description: アクセストークン検証失敗（M1・FR-19。欠落/形式不正/署名不正/期限切れを区別せず一様）
           headers:
             WWW-Authenticate:
-              description: 常に "Bearer"（RFC 6750）
+              description: FR-19ミドルウェア経由の401では常に "Bearer"（RFC 6750）
               schema:
                 type: string
           content:
