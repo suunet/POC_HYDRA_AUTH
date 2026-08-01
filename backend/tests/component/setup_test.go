@@ -62,6 +62,8 @@ var (
 	pool         *pgxpool.Pool
 	redisClient  *redis.Client
 	jwtPublicKey *rsa.PublicKey
+	// jwtSigningKey はサーバの署名鍵（M1検証用に期限切れ等の実署名トークンをテストから作るため公開）
+	jwtSigningKey *rsa.PrivateKey
 )
 
 func TestMain(m *testing.M) {
@@ -105,6 +107,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	jwtPublicKey = &jwtKey.PublicKey
+	jwtSigningKey = jwtKey
 
 	e, err := backend.BuildAuth(ctx, logger, auth.Deps{
 		PgxDb:         pool,
