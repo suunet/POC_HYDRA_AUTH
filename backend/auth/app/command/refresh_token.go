@@ -47,16 +47,11 @@ type RefreshUser struct {
 	Roles    []string
 }
 
-// RotationResult はテスト観測用（ローテーションの結果）。
-type RotationResult struct {
-	OldTokenID  uuid.UUID
-	NewFamilyID uuid.UUID
-}
-
 // RefreshTokenRepository。ローテーション（旧used_at＋新挿入）は単一Txをrepo実装が内包する（Q-3）。
 type RefreshTokenRepository interface {
-	// GetRefreshTokenForUpdate は SHA-256ハッシュで検索し対象行を施錠する（Q-5）。未存在は found=false。
-	GetRefreshTokenForUpdate(ctx context.Context, hash string) (StoredRefreshToken, bool, error)
+	// GetRefreshTokenByHash は SHA-256ハッシュで対象トークンを検証読取する（E2/E3/E4判定の材料）。未存在は found=false。
+	// 施錠はしない（二重消費の直列化は RotateRefreshToken の条件付きMarkUsedが担保。設計根拠: UC-006 §5）。
+	GetRefreshTokenByHash(ctx context.Context, hash string) (StoredRefreshToken, bool, error)
 	GetUserForRefresh(ctx context.Context, userUUID uuid.UUID) (RefreshUser, bool, error)
 	// RotateRefreshToken は旧トークンに used_at を記録し新トークンを挿入する（単一Tx・Q-3）。
 	RotateRefreshToken(ctx context.Context, oldTokenID uuid.UUID, newToken RefreshTokenRecord) error
@@ -78,7 +73,7 @@ func NewRefreshTokenHandler(tokens RefreshTokenRepository, signingKey *rsa.Priva
 	return &RefreshTokenHandler{tokens: tokens, signingKey: signingKey}
 }
 
-// Handle は UC-006 の検証順序（形式→検索〔施錠〕→期限→未使用〔再利用検知〕→ユーザー→status）で
+// Handle は UC-006 の検証順序（形式→検証読取→期限→未使用〔再利用検知〕→ユーザー→status）で
 // リフレッシュトークンを検証し、成功時にローテーション（新アクセス/リフレッシュトークン）を行う。
 func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (RefreshResult, error) {
 	logger := applog.FromContext(ctx).With("usecase", "UC-006", "ctx", "token_refresh")
@@ -95,8 +90,8 @@ func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (Re
 		return RefreshResult{}, ErrInvalidRefreshToken
 	}
 
-	// フロー3: 検索＋施錠（Q-5）
-	stored, found, err := h.tokens.GetRefreshTokenForUpdate(ctx, domain.HashRefreshToken(plainToken))
+	// フロー3: 検証読取（施錠なし・直列化は後段のRotate条件付きMarkUsedが担保）
+	stored, found, err := h.tokens.GetRefreshTokenByHash(ctx, domain.HashRefreshToken(plainToken))
 	if err != nil {
 		return fail("could not look up refresh token", err)
 	}
@@ -119,7 +114,7 @@ func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (Re
 	// （forced_revocation/E5/E6等で失効済み）の再提示も窃取兆候として fail-safe に family一括失効へ倒す
 	// （独自判断・§4記録。安全側＝正当セッションは既に別トークンへローテーション済みで実害小）。
 	// NOTE: 既失効family（DB上の先行 revocation_reason が account_deleted 等）の再提示でも応答理由は
-	// token_reuse_detected に固定する。攻撃者へ内部状態（先行失効の種別）を漏らさないため意図的（BJ c4#2）。
+	// token_reuse_detected に固定する。攻撃者へ内部状態（先行失効の種別）を漏らさないため意図的。
 	if stored.UsedAt != nil || stored.RevokedAt != nil {
 		// E4: 同一familyを一括失効（Q-2/NFR-14）
 		if rerr := h.tokens.RevokeRefreshTokenFamily(ctx, stored.FamilyID, "token_reuse_detected"); rerr != nil {
@@ -173,7 +168,7 @@ func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (Re
 			if rerr := h.tokens.RevokeRefreshTokenFamily(ctx, stored.FamilyID, "token_reuse_detected"); rerr != nil {
 				return fail("could not revoke token family", rerr)
 			}
-			// NOTE: 監査ログmsgは正本（UC-006 §6・BUC-U05）に一致させる（読取検知と同一E4事象＝同一msg・NFR-08・BJ c5#1/c1#1）。
+			// NOTE: 監査ログmsgは正本（UC-006 §6・BUC-U05）に一致させる（読取検知と同一E4事象＝同一msg・NFR-08）。
 			// 検知経路の区別は構造化フィールド detected_by で表す（msg正本を割らない）
 			logger.Log(ctx, applog.LevelCritical, "リフレッシュトークン再利用検知・当該family（チェーン）のセッション無効化",
 				"user_id", stored.UserUUID.String(), "family_id", stored.FamilyID.String(), "detected_by", "concurrent_rotation")

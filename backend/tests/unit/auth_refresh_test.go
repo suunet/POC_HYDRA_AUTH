@@ -18,6 +18,12 @@ import (
 	applog "poc-app-hydra/backend/common/log"
 )
 
+// rotationResult はローテーション呼び出しのテスト観測用（本番コードは使わない）。
+type rotationResult struct {
+	OldTokenID  uuid.UUID
+	NewFamilyID uuid.UUID
+}
+
 // fakeRefreshRepository は RefreshTokenRepository を模す。
 type fakeRefreshRepository struct {
 	// getByHash が返すレコード（見つからない場合 found=false）
@@ -34,12 +40,12 @@ type fakeRefreshRepository struct {
 	rotateErr error
 
 	// 記録
-	rotated       []command.RotationResult // MarkUsed＋新規保存の呼び出し
+	rotated       []rotationResult // MarkUsed＋新規保存の呼び出し
 	revokedSingle []uuid.UUID
 	revokedFamily []uuid.UUID
 }
 
-func (f *fakeRefreshRepository) GetRefreshTokenForUpdate(ctx context.Context, hash string) (command.StoredRefreshToken, bool, error) {
+func (f *fakeRefreshRepository) GetRefreshTokenByHash(ctx context.Context, hash string) (command.StoredRefreshToken, bool, error) {
 	if f.getErr != nil {
 		return command.StoredRefreshToken{}, false, f.getErr
 	}
@@ -57,7 +63,7 @@ func (f *fakeRefreshRepository) RotateRefreshToken(ctx context.Context, oldToken
 	if f.rotateErr != nil {
 		return f.rotateErr
 	}
-	f.rotated = append(f.rotated, command.RotationResult{OldTokenID: oldTokenID, NewFamilyID: newToken.FamilyID})
+	f.rotated = append(f.rotated, rotationResult{OldTokenID: oldTokenID, NewFamilyID: newToken.FamilyID})
 	return nil
 }
 

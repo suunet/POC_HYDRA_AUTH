@@ -15,9 +15,9 @@ import (
 // NOTE: リフレッシュトークン（INF-04）のローテーション/失効はUserRepositoryのメソッドとして実装する
 // （login用 SaveRefreshToken/GetLoginUser と同居・同一注入。エンティティ別ファイルへ分割配置）。
 
-// GetRefreshTokenForUpdate は SHA-256ハッシュで対象トークンを検証読取する（E2/E3/E4判定の材料）。未存在は found=false。
-// NOTE: 二重消費の直列化は本読取ではなく RotateRefreshToken の条件付きMarkUsed（used_at IS NULL）が担う（BJ c4#1）。
-func (r *UserRepository) GetRefreshTokenForUpdate(ctx context.Context, hash string) (command.StoredRefreshToken, bool, error) {
+// GetRefreshTokenByHash は SHA-256ハッシュで対象トークンを検証読取する（E2/E3/E4判定の材料）。未存在は found=false。
+// NOTE: 二重消費の直列化は本読取ではなく RotateRefreshToken の条件付きMarkUsed（used_at IS NULL）が担う。
+func (r *UserRepository) GetRefreshTokenByHash(ctx context.Context, hash string) (command.StoredRefreshToken, bool, error) {
 	row, err := dbmodels.New(r.db).GetRefreshTokenByHash(ctx, hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return command.StoredRefreshToken{}, false, nil
@@ -54,7 +54,7 @@ func (r *UserRepository) GetUserForRefresh(ctx context.Context, userUUID uuid.UU
 
 // RotateRefreshToken は旧トークンに used_at を記録し新トークンを挿入する（単一Tx・UC-006 Q-3）。
 // 条件付きMarkUsed（used_at IS NULL）が0行なら並行リクエストに先を越された＝再利用相当として
-// command.ErrRefreshTokenAlreadyUsed を返す（直列化ポイント・NFR-14・BJ c4#1）。
+// command.ErrRefreshTokenAlreadyUsed を返す（直列化ポイント・NFR-14）。
 func (r *UserRepository) RotateRefreshToken(ctx context.Context, oldTokenID uuid.UUID, newToken command.RefreshTokenRecord) error {
 	return common.UpdateInTx(ctx, r.db, func(ctx context.Context, tx pgx.Tx) error {
 		q := dbmodels.New(tx)

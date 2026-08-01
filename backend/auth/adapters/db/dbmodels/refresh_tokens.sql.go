@@ -89,7 +89,7 @@ WHERE token_id = $1
 
 // NOTE: UC-006 ローテーション: 使用済みは使用時刻で表す（INF-04・used_at＝消費）。
 // used_at IS NULL 条件付きの check-and-set で二重消費を直列化する（更新0行＝並行リクエストに先を越された
-// ＝再利用相当。呼出側は family一括失効へ倒す・NFR-14・BJ c4#1）
+// ＝再利用相当。呼出側は family一括失効へ倒す・NFR-14）
 func (q *Queries) MarkRefreshTokenUsed(ctx context.Context, tokenID uuid.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, markRefreshTokenUsed, tokenID)
 	if err != nil {
@@ -112,7 +112,7 @@ type RevokeRefreshTokenParams struct {
 }
 
 // NOTE: UC-006 E3/E5/E6: 当該トークンのみ失効（revoked_at＝失効・used_atと別概念）。
-// family失効と対称に既失効は上書きしない（先行失効の理由コード保護・BJ c2#1）
+// family失効と対称に既失効は上書きしない（先行失効の理由コード保護）
 func (q *Queries) RevokeRefreshToken(ctx context.Context, arg RevokeRefreshTokenParams) error {
 	_, err := q.db.Exec(ctx, revokeRefreshToken, arg.TokenID, arg.RevocationReason)
 	return err
