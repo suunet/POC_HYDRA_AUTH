@@ -18,10 +18,11 @@ type Handler struct {
 	verify   *command.VerifyEmailHandler
 	resend   *command.ResendEmailVerificationHandler
 	login    *command.LoginHandler
+	refresh  *command.RefreshTokenHandler
 }
 
-func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler) *Handler {
-	return &Handler{register: register, verify: verify, resend: resend, login: login}
+func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler) *Handler {
+	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh}
 }
 
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
@@ -119,6 +120,31 @@ func (h *Handler) Login(ctx context.Context, req LoginRequestObject) (LoginRespo
 		return nil, commonhttp.NewProblemError(http.StatusForbidden, "email-not-verified", "メールアドレスが確認されていません")
 	case errors.Is(err, domain.ErrAccountDisabled):
 		return nil, commonhttp.NewProblemError(http.StatusForbidden, "account-disabled", "アカウントが無効化されています")
+	default:
+		return nil, err
+	}
+}
+
+func (h *Handler) RefreshToken(ctx context.Context, req RefreshTokenRequestObject) (RefreshTokenResponseObject, error) {
+	if req.Body == nil {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
+	}
+
+	result, err := h.refresh.Handle(ctx, req.Body.RefreshToken)
+	var revoked *command.SessionRevokedError
+	switch {
+	case err == nil:
+		return RefreshToken200JSONResponse{AccessToken: result.AccessToken, RefreshToken: result.RefreshToken}, nil
+	case errors.Is(err, command.ErrInvalidRefreshToken):
+		// E1形式不正・E2不存在（区別しない・列挙防止）
+		return nil, commonhttp.NewProblemError(http.StatusUnauthorized, "invalid-token", "リフレッシュトークンが無効です")
+	case errors.Is(err, command.ErrRefreshTokenExpired):
+		// E3: 期限切れ
+		return nil, commonhttp.NewProblemError(http.StatusUnauthorized, "token-expired", "リフレッシュトークンの有効期限が切れています")
+	case errors.As(err, &revoked):
+		// E4再利用検知・E5削除・E6無効化。失効理由コードを拡張フィールドに載せる（VAR-10）
+		return nil, commonhttp.NewProblemError(http.StatusUnauthorized, "session-revoked", "セッションが失効しました").
+			WithRevocationReason(revoked.Reason)
 	default:
 		return nil, err
 	}

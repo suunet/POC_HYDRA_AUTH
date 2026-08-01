@@ -48,6 +48,43 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 	return i, err
 }
 
+const getUserByUuid = `-- name: GetUserByUuid :one
+SELECT
+	user_uuid,
+	email,
+	password_hash,
+	status,
+	created_at,
+	updated_at
+FROM auth.users
+WHERE user_uuid = $1
+  AND deleted_at IS NULL
+`
+
+type GetUserByUuidRow struct {
+	UserUuid     uuid.UUID
+	Email        string
+	PasswordHash string
+	Status       string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// NOTE: UC-006: token→user 取得（削除済み除外・E5）
+func (q *Queries) GetUserByUuid(ctx context.Context, userUuid uuid.UUID) (GetUserByUuidRow, error) {
+	row := q.db.QueryRow(ctx, getUserByUuid, userUuid)
+	var i GetUserByUuidRow
+	err := row.Scan(
+		&i.UserUuid,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUserRoles = `-- name: GetUserRoles :many
 SELECT
 	role

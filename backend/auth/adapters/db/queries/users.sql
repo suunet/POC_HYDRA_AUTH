@@ -42,3 +42,16 @@ SELECT
 FROM auth.user_roles
 WHERE user_uuid = $1
 ORDER BY role;
+
+-- name: GetUserByUuid :one
+-- NOTE: UC-006: token→user 取得（削除済み除外・E5）
+SELECT
+	user_uuid,
+	email,
+	password_hash,
+	status,
+	created_at,
+	updated_at
+FROM auth.users
+WHERE user_uuid = $1
+  AND deleted_at IS NULL;

@@ -41,9 +41,10 @@ func NewModule(deps Deps) *Module {
 	verify := command.NewVerifyEmailHandler(users, deps.VerifyLimiter)
 	resend := command.NewResendEmailVerificationHandler(users, deps.ResendLimiter, deps.Mailer)
 	login := command.NewLoginHandler(users, deps.LoginLockout, deps.JWTSigningKey)
+	refresh := command.NewRefreshTokenHandler(users, deps.JWTSigningKey)
 	return &Module{
 		pgxDb:   deps.PgxDb,
-		handler: apihttp.NewHandler(register, verify, resend, login),
+		handler: apihttp.NewHandler(register, verify, resend, login, refresh),
 	}
 }
 

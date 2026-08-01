@@ -57,13 +57,19 @@ type Problem struct {
 	// RetryAfter レート制限・ロックアウト超過時の再試行可能秒数（E4・VAR-11）
 	RetryAfter *int `json:"retry_after,omitempty"`
 
-	// RevocationReason セッション失効理由コード（VAR-10・本APIでは未使用）
+	// RevocationReason セッション失効理由コード（VAR-10・UC-006の401 session-revokedで使用＝token_reuse_detected/account_deleted/account_disabled）
 	RevocationReason *string `json:"revocation_reason,omitempty"`
 	Status           int     `json:"status"`
 	Title            string  `json:"title"`
 
 	// Type VAR-15のベースURI配下（例 https://example.com/probs/validation-error）
 	Type string `json:"type"`
+}
+
+// RefreshTokenRequest defines model for RefreshTokenRequest.
+type RefreshTokenRequest struct {
+	// RefreshToken opaque リフレッシュトークン（平文。INF-04はSHA-256ハッシュのみ保存し照合する・UC-006）
+	RefreshToken string `json:"refresh_token"`
 }
 
 // RegisterAccountRequest defines model for RegisterAccountRequest.
@@ -86,6 +92,9 @@ type LoginJSONRequestBody = LoginRequest
 
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
+
+// RefreshTokenJSONRequestBody defines body for RefreshToken for application/json ContentType.
+type RefreshTokenJSONRequestBody = RefreshTokenRequest
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -179,6 +188,11 @@ type ClientInterface interface {
 	RegisterAccountWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	RegisterAccount(ctx context.Context, body RegisterAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RefreshTokenWithBody request with any body
+	RefreshTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	RefreshToken(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) VerifyEmailWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -267,6 +281,30 @@ func (c *Client) RegisterAccountWithBody(ctx context.Context, contentType string
 
 func (c *Client) RegisterAccount(ctx context.Context, body RegisterAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRegisterAccountRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RefreshTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRefreshTokenRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RefreshToken(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRefreshTokenRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -437,6 +475,46 @@ func NewRegisterAccountRequestWithBody(server string, contentType string, body i
 	return req, nil
 }
 
+// NewRefreshTokenRequest calls the generic RefreshToken builder with application/json body
+func NewRefreshTokenRequest(server string, body RefreshTokenJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRefreshTokenRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewRefreshTokenRequestWithBody generates requests for RefreshToken with any type of body
+func NewRefreshTokenRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/auth/token/refresh")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -499,6 +577,11 @@ type ClientWithResponsesInterface interface {
 	RegisterAccountWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterAccountResponse, error)
 
 	RegisterAccountWithResponse(ctx context.Context, body RegisterAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterAccountResponse, error)
+
+	// RefreshTokenWithBodyWithResponse request with any body
+	RefreshTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error)
+
+	RefreshTokenWithResponse(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error)
 }
 
 type VerifyEmailResponse struct {
@@ -597,6 +680,29 @@ func (r RegisterAccountResponse) StatusCode() int {
 	return 0
 }
 
+type RefreshTokenResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	JSON200                   *LoginTokens
+	ApplicationproblemJSON401 *Problem
+}
+
+// Status returns HTTPResponse.Status
+func (r RefreshTokenResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RefreshTokenResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // VerifyEmailWithBodyWithResponse request with arbitrary body returning *VerifyEmailResponse
 func (c *ClientWithResponses) VerifyEmailWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error) {
 	rsp, err := c.VerifyEmailWithBody(ctx, contentType, body, reqEditors...)
@@ -663,6 +769,23 @@ func (c *ClientWithResponses) RegisterAccountWithResponse(ctx context.Context, b
 		return nil, err
 	}
 	return ParseRegisterAccountResponse(rsp)
+}
+
+// RefreshTokenWithBodyWithResponse request with arbitrary body returning *RefreshTokenResponse
+func (c *ClientWithResponses) RefreshTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error) {
+	rsp, err := c.RefreshTokenWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRefreshTokenResponse(rsp)
+}
+
+func (c *ClientWithResponses) RefreshTokenWithResponse(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error) {
+	rsp, err := c.RefreshToken(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRefreshTokenResponse(rsp)
 }
 
 // ParseVerifyEmailResponse parses an HTTP response from a VerifyEmailWithResponse call
@@ -819,6 +942,39 @@ func ParseRegisterAccountResponse(rsp *http.Response) (*RegisterAccountResponse,
 			return nil, err
 		}
 		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRefreshTokenResponse parses an HTTP response from a RefreshTokenWithResponse call
+func ParseRefreshTokenResponse(rsp *http.Response) (*RefreshTokenResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RefreshTokenResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LoginTokens
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
 
 	}
 

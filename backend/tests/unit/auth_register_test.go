@@ -101,6 +101,7 @@ func newAuthTestEcho(t *testing.T, d *testDeps) http.Handler {
 		command.NewVerifyEmailHandler(&fakeTokenRepository{}, &fakeRateLimiter{blocked: map[string]bool{}}),
 		command.NewResendEmailVerificationHandler(d.resendRepo, d.limiter, d.mailer),
 		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, testSigningKey(nil)),
+		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, testSigningKey(nil)),
 	))
 	return e
 }

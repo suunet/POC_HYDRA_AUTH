@@ -102,10 +102,11 @@ func (r *UserRepository) GetLoginUser(ctx context.Context, email string) (comman
 // SaveRefreshToken はリフレッシュトークン（NFR-14: ハッシュのみ）を永続化する（INF-04）。
 func (r *UserRepository) SaveRefreshToken(ctx context.Context, rt command.RefreshTokenRecord) error {
 	return dbmodels.New(r.db).InsertRefreshToken(ctx, dbmodels.InsertRefreshTokenParams{
-		TokenID:   rt.TokenID,
-		UserUuid:  rt.UserUUID,
-		FamilyID:  rt.FamilyID,
-		TokenHash: rt.TokenHash,
-		ExpiresAt: rt.ExpiresAt,
+		TokenID:       rt.TokenID,
+		UserUuid:      rt.UserUUID,
+		FamilyID:      rt.FamilyID,
+		ParentTokenID: rt.ParentTokenID,
+		TokenHash:     rt.TokenHash,
+		ExpiresAt:     rt.ExpiresAt,
 	})
 }
