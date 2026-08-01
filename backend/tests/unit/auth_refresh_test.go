@@ -38,11 +38,14 @@ type fakeRefreshRepository struct {
 
 	// rotateErr は RotateRefreshToken が返すエラー（並行回転競合＝ErrRefreshTokenAlreadyUsed の模擬用）
 	rotateErr error
+	// revokeErr は RevokeRefreshToken が返すエラー（失効UPDATE障害の模擬用）
+	revokeErr error
 
 	// 記録
-	rotated       []rotationResult // MarkUsed＋新規保存の呼び出し
-	revokedSingle []uuid.UUID
-	revokedFamily []uuid.UUID
+	rotated        []rotationResult // MarkUsed＋新規保存の呼び出し
+	revokedSingle  []uuid.UUID
+	revokedReasons []*string // revokedSingle と同順の失効理由（nil=NULL）
+	revokedFamily  []uuid.UUID
 }
 
 func (f *fakeRefreshRepository) GetRefreshTokenByHash(ctx context.Context, hash string) (command.StoredRefreshToken, bool, error) {
@@ -68,7 +71,11 @@ func (f *fakeRefreshRepository) RotateRefreshToken(ctx context.Context, oldToken
 }
 
 func (f *fakeRefreshRepository) RevokeRefreshToken(ctx context.Context, tokenID uuid.UUID, reason *string) error {
+	if f.revokeErr != nil {
+		return f.revokeErr
+	}
 	f.revokedSingle = append(f.revokedSingle, tokenID)
+	f.revokedReasons = append(f.revokedReasons, reason)
 	return nil
 }
 
