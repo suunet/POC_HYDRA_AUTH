@@ -34,6 +34,7 @@ func newLogoutTestEcho(t *testing.T, repo *fakeRefreshRepository, key *rsa.Priva
 		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, key),
 		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
 		command.NewLogoutHandler(repo),
+		command.NewChangePasswordHandler(&fakePasswordChangeRepository{}),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
@@ -128,26 +129,35 @@ func TestUC007_LogoutHTTP_OpenAPISecurityDeclarations_AreEnforced(t *testing.T) 
 	data, err := os.ReadFile("../../auth/api/http/openapi.yaml")
 	require.NoError(t, err)
 
-	// NOTE: 本リポジトリのopenapi整形（paths直下=2スペース・操作直下=6スペース）前提の行パース。
-	// yaml.v3の直接依存昇格を避けた構成のため、下の自己検査（/auth/logout検出必須）でパーサ破れを検知する
+	// NOTE: 本リポジトリのopenapi整形（paths直下=2スペース・メソッド=4スペース・操作直下=6スペース）
+	// 前提の行パース。yaml.v3の直接依存昇格を避けた構成のため、下の自己検査（/auth/logout検出必須）で
+	// パーサ破れを検知する。メソッドも収集しPUT等の保護ルートを取りこぼさない
 	pathRe := regexp.MustCompile(`^  (/[^:]+):$`)
-	var protected []string
-	current := ""
+	methodRe := regexp.MustCompile(`^    (get|post|put|patch|delete):$`)
+	type operation struct{ method, path string }
+	var protected []operation
+	currentPath, currentMethod := "", ""
 	for _, line := range strings.Split(string(data), "\n") {
 		if m := pathRe.FindStringSubmatch(line); m != nil {
-			current = m[1]
+			currentPath = m[1]
+			currentMethod = "" // パス切替でメソッドをリセット（前パスへの誤帰属防止）
 		}
-		if strings.HasPrefix(line, "      security:") && current != "" {
-			protected = append(protected, current)
+		if m := methodRe.FindStringSubmatch(line); m != nil {
+			currentMethod = strings.ToUpper(m[1])
+		}
+		if strings.HasPrefix(line, "      security:") && currentPath != "" && currentMethod != "" {
+			protected = append(protected, operation{method: currentMethod, path: currentPath})
 		}
 	}
-	require.Contains(t, protected, "/auth/logout", "パーサ自己検査: security宣言済みのlogoutを検出できない場合はパース前提が破れている")
+	// パーサ自己検査: 既知の保護2操作（POST logout・PUT password）を検出できない場合はパース前提が破れている
+	require.Contains(t, protected, operation{method: http.MethodPost, path: "/auth/logout"})
+	require.Contains(t, protected, operation{method: http.MethodPut, path: "/auth/password"})
 
 	h := newLogoutTestEcho(t, &fakeRefreshRepository{}, testSigningKey(t))
-	for _, p := range protected {
-		t.Run(p, func(t *testing.T) {
+	for _, op := range protected {
+		t.Run(op.method+" "+op.path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, p, strings.NewReader(`{}`))
+			req := httptest.NewRequest(op.method, op.path, strings.NewReader(`{}`))
 			req.Header.Set("Content-Type", "application/json")
 			h.ServeHTTP(rec, req)
 			require.Equal(t, http.StatusUnauthorized, rec.Code, "security宣言済み操作はAT無しで401（保護マップの乖離検知）")
@@ -170,6 +180,7 @@ func TestUC007_LogoutHTTP_MissingMiddlewareWiring_FailsClosed401(t *testing.T) {
 		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, key),
 		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
 		command.NewLogoutHandler(&fakeRefreshRepository{}),
+		command.NewChangePasswordHandler(&fakePasswordChangeRepository{}),
 	), passthrough)
 
 	res := postLogout(t, e, "Bearer "+accessTokenFor(t, key, uuid.New()), `{"refresh_token":"x"}`)

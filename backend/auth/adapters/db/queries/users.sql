@@ -55,3 +55,11 @@ SELECT
 FROM auth.users
 WHERE user_uuid = $1
   AND deleted_at IS NULL;
+
+-- name: UpdateUserPassword :execrows
+-- NOTE: UC-010: パスワード更新（削除済み除外）。0行=ユーザー不存在（削除レース）＝呼出側がTx全体を失敗させる
+UPDATE auth.users
+SET password_hash = $2,
+    updated_at = now()
+WHERE user_uuid = $1
+  AND deleted_at IS NULL;

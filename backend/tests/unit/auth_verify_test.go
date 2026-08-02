@@ -60,6 +60,7 @@ func newVerifyTestEchoWithLimiter(t *testing.T, repo *fakeTokenRepository, limit
 		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, key),
 		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
 		command.NewLogoutHandler(&fakeRefreshRepository{}),
+		command.NewChangePasswordHandler(&fakePasswordChangeRepository{}),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }

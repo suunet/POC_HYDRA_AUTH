@@ -99,6 +99,43 @@ func (r *UserRepository) GetLoginUser(ctx context.Context, email string) (comman
 	}, true, nil
 }
 
+// GetUserCredentials は user_uuid でユーザーの照合用属性（INF-01）を検証読取する（削除済み除外・UC-010）。
+// 未存在は found=false。
+func (r *UserRepository) GetUserCredentials(ctx context.Context, userUUID uuid.UUID) (command.UserCredentials, bool, error) {
+	row, err := dbmodels.New(r.db).GetUserByUuid(ctx, userUUID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return command.UserCredentials{}, false, nil
+	}
+	if err != nil {
+		return command.UserCredentials{}, false, err
+	}
+	return command.UserCredentials{PasswordHash: row.PasswordHash, Status: row.Status}, true, nil
+}
+
+// ChangePassword はパスワード更新と当該ユーザーの全リフレッシュトークン失効を単一Txで行う（UC-010・FR-10）。
+// 失効理由は password_changed 固定（VAR-10・本メソッドの意味論として内包）。
+// NOTE: 更新0行（削除レースでの不存在）はエラーとしてTx全体をロールバックする（片系適用を残さない安全網）
+func (r *UserRepository) ChangePassword(ctx context.Context, userUUID uuid.UUID, newPasswordHash string) error {
+	return common.UpdateInTx(ctx, r.db, func(ctx context.Context, tx pgx.Tx) error {
+		q := dbmodels.New(tx)
+		affected, err := q.UpdateUserPassword(ctx, dbmodels.UpdateUserPasswordParams{
+			UserUuid:     userUUID,
+			PasswordHash: newPasswordHash,
+		})
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			return errors.New("user not found for password update")
+		}
+		reason := command.RevocationReasonPasswordChanged
+		return q.RevokeRefreshTokensByUser(ctx, dbmodels.RevokeRefreshTokensByUserParams{
+			UserUuid:         userUUID,
+			RevocationReason: &reason,
+		})
+	})
+}
+
 // SaveRefreshToken はリフレッシュトークン（NFR-14: ハッシュのみ）を永続化する（INF-04）。
 func (r *UserRepository) SaveRefreshToken(ctx context.Context, rt command.RefreshTokenRecord) error {
 	return dbmodels.New(r.db).InsertRefreshToken(ctx, dbmodels.InsertRefreshTokenParams{

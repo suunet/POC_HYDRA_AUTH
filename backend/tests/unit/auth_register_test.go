@@ -104,6 +104,7 @@ func newAuthTestEcho(t *testing.T, d *testDeps) http.Handler {
 		command.NewLoginHandler(&fakeLoginRepository{}, &fakeLockout{}, key),
 		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
 		command.NewLogoutHandler(&fakeRefreshRepository{}),
+		command.NewChangePasswordHandler(&fakePasswordChangeRepository{}),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }

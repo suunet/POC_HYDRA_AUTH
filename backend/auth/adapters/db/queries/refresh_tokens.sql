@@ -50,3 +50,12 @@ SET revoked_at = now(),
     revocation_reason = $2
 WHERE family_id = $1
   AND revoked_at IS NULL;
+
+-- name: RevokeRefreshTokensByUser :exec
+-- NOTE: UC-010/FR-10: 当該ユーザーの全リフレッシュトークンを一括失効（family横断のuser単位）。
+-- 既失効は上書きしない（先行失効の理由コード保護・単一/family失効と対称）
+UPDATE auth.refresh_tokens
+SET revoked_at = now(),
+    revocation_reason = $2
+WHERE user_uuid = $1
+  AND revoked_at IS NULL;

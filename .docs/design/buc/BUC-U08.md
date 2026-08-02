@@ -11,7 +11,7 @@
 | 関連FR | FR-10 |
 | 関連NFR | NFR-01, NFR-06, NFR-07, NFR-08, NFR-09 |
 | 関連情報 | INF-01（ユーザー情報）, INF-03（アクセストークン）, INF-04（リフレッシュトークン） |
-| 関連条件 | CND-06（アクセストークンが有効であること）, CND-16（現在のパスワードが一致すること） |
+| 関連条件 | CND-06（アクセストークンが有効であること）, CND-16（現在のパスワードが一致すること）, CND-04（アカウントが無効化済み・削除済みでないこと） |
 | 事後状態 | STM-02.セッション失効 |
 
 ---
@@ -26,18 +26,19 @@
 ### 基本フロー
 
 1. ユーザーは現在のパスワードと新しいパスワードを送信する
-2. システムは新しいパスワードの強度（最小15文字、最大64文字、全ASCII文字・Unicode許容、文字種の混在強制なし）を検証する
+2. システムは新しいパスワードの強度（最小15文字、最大64文字、全ASCII文字・Unicode許容、文字種の混在強制なし、かつUTF-8エンコード時72バイト以下〔bcrypt入力上限・VAR-02〕）を検証する
 3. システムはアクセストークンからユーザーIDを取得する
 4. システムはユーザー（削除済みを除く）をDBで検索する
-5. システムは現在のパスワードをbcryptで検証する
-6. システムは新しいパスワードをbcryptでハッシュ化する
-7. システムはパスワードを更新する
-8. システムは当該ユーザーの全リフレッシュトークンを無効化する（失効理由: `password_changed`）
+5. システムはアカウントが無効化済みでないことを確認する（CND-04）
+6. システムは現在のパスワードをbcryptで検証する
+7. システムは新しいパスワードをbcryptでハッシュ化する
+8. システムはパスワードを更新する
+9. システムは当該ユーザーの全リフレッシュトークンを無効化する（失効理由: `password_changed`）
 
-> ステップ7〜8は単一トランザクションで実行する
+> ステップ8〜9は単一トランザクションで実行する
 
-9. システムは監査ログ（パスワード変更、INFO）を記録する
-10. システムは200レスポンスを返す（`revocation_reason: password_changed` を含める）
+10. システムは監査ログ（パスワード変更、INFO）を記録する
+11. システムは200レスポンスを返す（`revocation_reason: password_changed` を含める）
 
 ### 代替フロー
 
@@ -53,18 +54,30 @@
 - b. システムは400 (Bad Request)、`application/problem+json`、`type: https://example.com/probs/validation-error` を返す
 - c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "password_change", msg: "パスワード強度不足", lvl: "WARNING" }`。NFR-08）
 
-**E2. 現在のパスワード不一致（ステップ5）**
+**E2. 現在のパスワード不一致（ステップ6）**
 
 - a. システムは処理を中断する
 - b. システムは403 (Forbidden)、`application/problem+json`、`type: https://example.com/probs/password-mismatch` を返す
 - c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "password_change", msg: "現在のパスワード不一致", lvl: "WARNING" }`。NFR-08）
 
-**E3. トランザクション失敗（ステップ7〜8）**
+**E3. トランザクション失敗（ステップ8〜9）**
 
 - a. システムはトランザクション全体をロールバックする（パスワード更新・全セッション無効化のいずれも適用しない）
 - b. システムは500 (Internal Server Error)、`application/problem+json`、`type: https://example.com/probs/internal-error` を返す
 - c. 外部依存失敗としてERRORログを出力する（`{ ctx: "password_change", msg: "パスワード変更トランザクション失敗", lvl: "ERROR" }`。NFR-08）
-- ロールバックスコープ: ステップ7〜8の全操作。パスワード・セッションのいずれも変更前の状態に戻す
+- ロールバックスコープ: ステップ8〜9の全操作。パスワード・セッションのいずれも変更前の状態に戻す
+
+**E4. ユーザーが存在しない＝削除済み（ステップ4）**
+
+- a. システムは処理を中断する（トークン状態は変更しない）
+- b. システムは401 (Unauthorized)、`application/problem+json`、`type: https://example.com/probs/session-revoked`、`revocation_reason: account_deleted` を返す（VAR-10）
+- c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "password_change", msg: "削除済みアカウントの操作試行", lvl: "WARNING" }`。NFR-08）
+
+**E5. アカウント無効化済み（ステップ5・CND-04）**
+
+- a. システムは処理を中断する（トークン状態は変更しない）
+- b. システムは401 (Unauthorized)、`application/problem+json`、`type: https://example.com/probs/session-revoked`、`revocation_reason: account_disabled` を返す（VAR-10）
+- c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "password_change", msg: "無効化済みアカウントの操作試行", lvl: "WARNING" }`。NFR-08）
 
 ---
 
@@ -90,6 +103,19 @@ entity "RefreshTokenRepository" as リフレッシュトークンRepo
 
 ユースケース --> ユースケース : validatePassword(newPassword)
 ユースケース --> ユーザーRepo : findById(userId, excludeDeleted: true)
+
+note right of ユースケース
+  E4: 見つからない（削除済み）場合
+  401 session-revoked（account_deleted・トークン状態は変更しない）
+end note
+
+ユースケース --> ユースケース : checkStatus(user)（CND-04）
+
+note right of ユースケース
+  E5: 無効化済みの場合
+  401 session-revoked（account_disabled・トークン状態は変更しない）
+end note
+
 ユースケース --> パスワード検証 : verify(currentPassword, hashedPassword)
 ユースケース --> ハッシュ化 : hash(newPassword)
 ユースケース --> ユーザーRepo : updatePassword(userId, hashedPassword)
@@ -120,13 +146,22 @@ sequenceDiagram
   end
   UseCase->>UserRepo: findById(userId, excludeDeleted: true)
   UserRepo-->>UseCase: user
+  alt E4: 見つからない（削除済み）
+  UseCase-->>ChangePwAPI: SessionRevokedError（account_deleted・トークン状態は変更しない）
+  ChangePwAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../session-revoked<br/>revocation_reason: account_deleted
+  end
+  UseCase->>UseCase: checkStatus(user)（CND-04）
+  alt E5: 無効化済み
+  UseCase-->>ChangePwAPI: SessionRevokedError（account_disabled・トークン状態は変更しない）
+  ChangePwAPI-->>User: 401 Unauthorized<br/>application/problem+json<br/>type: .../session-revoked<br/>revocation_reason: account_disabled
+  end
   UseCase->>UseCase: bcrypt verify(currentPassword, user.hashedPassword)
   alt E2: 現在のパスワード不一致
   UseCase-->>ChangePwAPI: PasswordMismatchError
   ChangePwAPI-->>User: 403 Forbidden<br/>application/problem+json<br/>type: .../password-mismatch
   end
   UseCase->>UseCase: bcrypt hash(newPassword)
-  critical トランザクション ステップ7〜8
+  critical トランザクション ステップ8〜9
   UseCase->>UserRepo: updatePassword(userId, hashedPassword)
   UserRepo-->>UseCase: updated
   UseCase->>RefreshRepo: revokeAllByUserId<br/>(userId, reason: password_changed)
