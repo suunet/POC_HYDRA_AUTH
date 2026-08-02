@@ -114,7 +114,7 @@ services:
     environment:
       SWAGGER_JSON: /spec/openapi.yaml
     volumes:
-      - ./backend/auth/api/http/openapi.yaml:/spec/openapi.yaml:ro
+      - ./backend/auth/api/http:/spec:ro
 
 volumes:
   pgdata:
