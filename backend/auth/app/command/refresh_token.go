@@ -117,12 +117,12 @@ func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (Re
 	// token_reuse_detected に固定する。攻撃者へ内部状態（先行失効の種別）を漏らさないため意図的。
 	if stored.UsedAt != nil || stored.RevokedAt != nil {
 		// E4: 同一familyを一括失効（Q-2/NFR-14）
-		if rerr := h.tokens.RevokeRefreshTokenFamily(ctx, stored.FamilyID, "token_reuse_detected"); rerr != nil {
+		if rerr := h.tokens.RevokeRefreshTokenFamily(ctx, stored.FamilyID, RevocationReasonTokenReuseDetected); rerr != nil {
 			return fail("could not revoke token family", rerr)
 		}
 		logger.Log(ctx, applog.LevelCritical, "リフレッシュトークン再利用検知・当該family（チェーン）のセッション無効化",
 			"user_id", stored.UserUUID.String(), "family_id", stored.FamilyID.String(), "detected_by", "reuse_presentation")
-		return RefreshResult{}, &SessionRevokedError{Reason: "token_reuse_detected"}
+		return RefreshResult{}, &SessionRevokedError{Reason: RevocationReasonTokenReuseDetected}
 	}
 
 	// フロー6: ユーザー取得（削除済み除外・E5）
@@ -132,20 +132,20 @@ func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (Re
 	}
 	if !ok {
 		// E5: 削除済み
-		if rerr := h.tokens.RevokeRefreshToken(ctx, stored.TokenID, strptr("account_deleted")); rerr != nil {
+		if rerr := h.tokens.RevokeRefreshToken(ctx, stored.TokenID, strptr(RevocationReasonAccountDeleted)); rerr != nil {
 			return fail("could not revoke token", rerr)
 		}
 		logger.WarnContext(ctx, "削除済みアカウントのトークン再発行試行", "user_id", stored.UserUUID.String())
-		return RefreshResult{}, &SessionRevokedError{Reason: "account_deleted"}
+		return RefreshResult{}, &SessionRevokedError{Reason: RevocationReasonAccountDeleted}
 	}
 
 	// フロー7: 無効化済みでない（E6・CND-04）
 	if user.Status == domain.StatusDisabled {
-		if rerr := h.tokens.RevokeRefreshToken(ctx, stored.TokenID, strptr("account_disabled")); rerr != nil {
+		if rerr := h.tokens.RevokeRefreshToken(ctx, stored.TokenID, strptr(RevocationReasonAccountDisabled)); rerr != nil {
 			return fail("could not revoke token", rerr)
 		}
 		logger.WarnContext(ctx, "無効化済みアカウントのトークン再発行試行", "user_id", stored.UserUUID.String())
-		return RefreshResult{}, &SessionRevokedError{Reason: "account_disabled"}
+		return RefreshResult{}, &SessionRevokedError{Reason: RevocationReasonAccountDisabled}
 	}
 
 	// フロー8-9: ローテーション（旧used_at＋新挿入を単一Tx・Q-3）
@@ -165,14 +165,14 @@ func (h *RefreshTokenHandler) Handle(ctx context.Context, plainToken string) (Re
 		// 並行リフレッシュ競合: 条件付きMarkUsedが0行＝別リクエストが先に消費済み（再利用相当）。
 		// 読取時点では未使用でも、ここで初めて競合を検知する（直列化ポイント）。E4と同じくfamily一括失効へ倒す
 		if errors.Is(err, ErrRefreshTokenAlreadyUsed) {
-			if rerr := h.tokens.RevokeRefreshTokenFamily(ctx, stored.FamilyID, "token_reuse_detected"); rerr != nil {
+			if rerr := h.tokens.RevokeRefreshTokenFamily(ctx, stored.FamilyID, RevocationReasonTokenReuseDetected); rerr != nil {
 				return fail("could not revoke token family", rerr)
 			}
 			// NOTE: 監査ログmsgは正本（UC-006 §6・BUC-U05）に一致させる（読取検知と同一E4事象＝同一msg・NFR-08）。
 			// 検知経路の区別は構造化フィールド detected_by で表す（msg正本を割らない）
 			logger.Log(ctx, applog.LevelCritical, "リフレッシュトークン再利用検知・当該family（チェーン）のセッション無効化",
 				"user_id", stored.UserUUID.String(), "family_id", stored.FamilyID.String(), "detected_by", "concurrent_rotation")
-			return RefreshResult{}, &SessionRevokedError{Reason: "token_reuse_detected"}
+			return RefreshResult{}, &SessionRevokedError{Reason: RevocationReasonTokenReuseDetected}
 		}
 		return fail("could not rotate refresh token", err)
 	}
