@@ -12,9 +12,6 @@ import (
 	applog "poc-app-hydra/backend/common/log"
 )
 
-// RevocationReasonPasswordChanged は VAR-10（セッション失効理由コード）の password_changed。
-const RevocationReasonPasswordChanged = "password_changed"
-
 // ErrPasswordMismatch は UC-010 E2（現在のパスワード不一致・CND-16違反＝403 password-mismatch）。
 // currentPasswordは形式検証せず、72バイト超等のbcrypt照合エラーも本エラーへ倒す（資格情報の検証失敗・安全側）
 var ErrPasswordMismatch = errors.New("current password mismatch")
@@ -65,7 +62,7 @@ func (h *ChangePasswordHandler) Handle(ctx context.Context, authenticatedUserID,
 	if parseErr != nil {
 		// 内部ログは事実どおり区別する（応答のみE4と同一化して存在情報を秘匿）
 		logger.WarnContext(ctx, "不正な認証サブジェクトでの操作試行", "user_id", authenticatedUserID)
-		return &SessionRevokedError{Reason: "account_deleted"}
+		return &SessionRevokedError{Reason: RevocationReasonAccountDeleted}
 	}
 	creds, found, err := h.users.GetUserCredentials(ctx, authUUID)
 	if err != nil {
@@ -73,13 +70,13 @@ func (h *ChangePasswordHandler) Handle(ctx context.Context, authenticatedUserID,
 	}
 	if !found {
 		logger.WarnContext(ctx, "削除済みアカウントの操作試行", "user_id", authenticatedUserID)
-		return &SessionRevokedError{Reason: "account_deleted"}
+		return &SessionRevokedError{Reason: RevocationReasonAccountDeleted}
 	}
 
 	// フロー5: 無効化済みでない（CND-04・E5）
 	if creds.Status == domain.StatusDisabled {
 		logger.WarnContext(ctx, "無効化済みアカウントの操作試行", "user_id", authenticatedUserID)
-		return &SessionRevokedError{Reason: "account_disabled"}
+		return &SessionRevokedError{Reason: RevocationReasonAccountDisabled}
 	}
 
 	// フロー6: 現在パスワード照合（CND-16・E2・domain.VerifyPassword経由=CND-02照合器と共通）。
