@@ -21,10 +21,11 @@ type Handler struct {
 	refresh        *command.RefreshTokenHandler
 	logout         *command.LogoutHandler
 	changePassword *command.ChangePasswordHandler
+	requestReset   *command.RequestPasswordResetHandler
 }
 
-func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler, changePassword *command.ChangePasswordHandler) *Handler {
-	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout, changePassword: changePassword}
+func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler, changePassword *command.ChangePasswordHandler, requestReset *command.RequestPasswordResetHandler) *Handler {
+	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout, changePassword: changePassword, requestReset: requestReset}
 }
 
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
@@ -94,6 +95,28 @@ func (h *Handler) ResendEmailVerification(ctx context.Context, req ResendEmailVe
 		return nil, problem.WithRetryAfter(int(math.Ceil(rateLimited.RetryAfter.Seconds())))
 	case errors.Is(err, command.ErrMailDeliveryFail):
 		return nil, commonhttp.NewProblemError(http.StatusServiceUnavailable, "mail-delivery-error", "確認メールの送信に失敗しました")
+	default:
+		return nil, err
+	}
+}
+
+func (h *Handler) RequestPasswordReset(ctx context.Context, req RequestPasswordResetRequestObject) (RequestPasswordResetResponseObject, error) {
+	if req.Body == nil {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
+	}
+
+	err := h.requestReset.Handle(ctx, string(req.Body.Email))
+	var rateLimited *command.RateLimitedError
+	switch {
+	case err == nil:
+		return RequestPasswordReset200Response{}, nil
+	case errors.As(err, &rateLimited):
+		problem := commonhttp.NewProblemError(http.StatusTooManyRequests, "rate-limit-exceeded", "パスワードリセット要求が多すぎます")
+		return nil, problem.WithRetryAfter(int(math.Ceil(rateLimited.RetryAfter.Seconds())))
+	case errors.Is(err, domain.ErrInvalidEmail):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "メールアドレスの形式が不正です")
+	case errors.Is(err, command.ErrMailDeliveryFail):
+		return nil, commonhttp.NewProblemError(http.StatusServiceUnavailable, "mail-delivery-error", "リセットメールの送信に失敗しました")
 	default:
 		return nil, err
 	}

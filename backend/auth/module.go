@@ -32,6 +32,7 @@ type Deps struct {
 	Limiter       command.RateLimiter
 	VerifyLimiter command.RateLimiter
 	ResendLimiter command.RateLimiter
+	ResetLimiter  command.RateLimiter
 	LoginLockout  command.Lockout
 	Mailer        command.Mailer
 	JWTSigningKey *rsa.PrivateKey
@@ -46,9 +47,10 @@ func NewModule(deps Deps) *Module {
 	refresh := command.NewRefreshTokenHandler(users, deps.JWTSigningKey)
 	logout := command.NewLogoutHandler(users)
 	changePassword := command.NewChangePasswordHandler(users)
+	requestReset := command.NewRequestPasswordResetHandler(users, deps.ResetLimiter, deps.Mailer)
 	return &Module{
 		pgxDb:        deps.PgxDb,
-		handler:      apihttp.NewHandler(register, verify, resend, login, refresh, logout, changePassword),
+		handler:      apihttp.NewHandler(register, verify, resend, login, refresh, logout, changePassword, requestReset),
 		jwtPublicKey: &deps.JWTSigningKey.PublicKey,
 	}
 }
