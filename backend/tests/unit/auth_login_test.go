@@ -100,6 +100,7 @@ func newLoginTestEcho(t *testing.T, repo *fakeLoginRepository, lockout *fakeLock
 		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
 		command.NewLogoutHandler(&fakeRefreshRepository{}),
 		command.NewChangePasswordHandler(&fakePasswordChangeRepository{}),
+		command.NewRequestPasswordResetHandler(&fakeResetRequestRepository{users: map[string]fakeResetUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
