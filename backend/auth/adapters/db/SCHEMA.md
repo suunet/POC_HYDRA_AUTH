@@ -8,6 +8,7 @@
 erDiagram
     users ||--o{ user_roles : "grants"
     users ||--o{ email_confirmation_tokens : "issues"
+    users ||--o{ password_reset_tokens : "issues"
     users ||--o{ refresh_tokens : "issues"
 
     users {
@@ -29,6 +30,14 @@ erDiagram
         uuid user_uuid FK
         varchar token_hash
         timestamptz expires_at "VAR-06"
+        timestamptz used_at
+        timestamptz created_at
+    }
+    password_reset_tokens {
+        uuid token_uuid PK
+        uuid user_uuid FK
+        varchar token_hash
+        timestamptz expires_at "VAR-05"
         timestamptz used_at
         timestamptz created_at
     }
@@ -90,6 +99,23 @@ erDiagram
 **インデックス**
 
 - `email_confirmation_tokens_hash_unique`: `(token_hash)` UNIQUE
+
+## auth.password_reset_tokens
+
+対応: INF-05（パスワードリセットトークン）
+
+| 列 | 型 | 制約 | 説明 |
+|---|---|---|---|
+| `token_uuid` | uuid | PK | |
+| `user_uuid` | uuid | NOT NULL・FK → `users.user_uuid` | |
+| `token_hash` | varchar(255) | NOT NULL | SHA-256ハッシュ（平文は保存しない・NFR-15） |
+| `expires_at` | timestamptz | NOT NULL | VAR-05（有効期限30分） |
+| `used_at` | timestamptz | NULL可 | 使用済みは使用時刻で表す（未使用はnull）。消費だけでなく再要求・完了時の一括無効化（CND-18）にも用いる |
+| `created_at` | timestamptz | NOT NULL DEFAULT now() | |
+
+**インデックス**
+
+- `password_reset_tokens_hash_unique`: `(token_hash)` UNIQUE
 
 ## auth.refresh_tokens
 
