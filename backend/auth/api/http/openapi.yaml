@@ -398,6 +398,41 @@ paths:
                 type: https://example.com/probs/mail-delivery-error
                 title: Service Unavailable
                 status: 503
+  /auth/password-reset/confirm:
+    post:
+      summary: パスワードリセットを完了する
+      operationId: confirmPasswordReset
+      tags:
+        - commands
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRequest'
+      responses:
+        '200':
+          description: パスワード再設定完了（UC-009・FR-09。単一Txで当該トークン消費＋他の有効トークン一括無効化〔CND-18〕＋全リフレッシュトークン失効〔password_changed〕。事後STM-01.未認証＝アカウント状態不変・ボディ最小限）
+        '400':
+          description: 強度不足（E4=validation-error・VAR-02）／トークン不存在・使用済み（E5/E6=invalid-token・応答同一で状態を区別しない）／期限切れ（E7=token-expired・CND-08・状態更新なしno-op）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/invalid-token
+                title: Bad Request
+                status: 400
+        '500':
+          description: トランザクション失敗（E8=internal-error・パスワード・トークン状態・セッションとも全ロールバック済み）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/internal-error
+                title: Internal Server Error
+                status: 500
 components:
   securitySchemes:
     bearerAuth:
@@ -508,6 +543,21 @@ components:
           format: email
           maxLength: 254
           description: VAR-01（RFC5322準拠・最大254文字）
+    PasswordResetConfirmRequest:
+      type: object
+      required:
+        - token
+        - new_password
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: パスワードリセットトークン（平文。INF-05はSHA-256ハッシュのみ保存し照合する）
+        new_password:
+          type: string
+          minLength: 15
+          maxLength: 64
+          description: VAR-02（最小15・最大64文字・Unicode許容・UTF-8で72バイト以下）
     EmailVerifyRequest:
       type: object
       required:

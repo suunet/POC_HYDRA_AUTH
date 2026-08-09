@@ -69,6 +69,15 @@ type PasswordChangeResponse struct {
 	RevocationReason string `json:"revocation_reason"`
 }
 
+// PasswordResetConfirmRequest defines model for PasswordResetConfirmRequest.
+type PasswordResetConfirmRequest struct {
+	// NewPassword VAR-02（最小15・最大64文字・Unicode許容・UTF-8で72バイト以下）
+	NewPassword string `json:"new_password"`
+
+	// Token パスワードリセットトークン（平文。INF-05はSHA-256ハッシュのみ保存し照合する）
+	Token string `json:"token"`
+}
+
 // PasswordResetRequest defines model for PasswordResetRequest.
 type PasswordResetRequest struct {
 	// Email VAR-01（RFC5322準拠・最大254文字）
@@ -128,6 +137,9 @@ type ChangePasswordJSONRequestBody = ChangePasswordRequest
 // RequestPasswordResetJSONRequestBody defines body for RequestPasswordReset for application/json ContentType.
 type RequestPasswordResetJSONRequestBody = PasswordResetRequest
 
+// ConfirmPasswordResetJSONRequestBody defines body for ConfirmPasswordReset for application/json ContentType.
+type ConfirmPasswordResetJSONRequestBody = PasswordResetConfirmRequest
+
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
 
@@ -154,6 +166,9 @@ type ServerInterface interface {
 	// パスワードリセットを要求する
 	// (POST /auth/password-reset)
 	RequestPasswordReset(ctx echo.Context) error
+	// パスワードリセットを完了する
+	// (POST /auth/password-reset/confirm)
+	ConfirmPasswordReset(ctx echo.Context) error
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx echo.Context) error
@@ -225,6 +240,15 @@ func (w *ServerInterfaceWrapper) RequestPasswordReset(ctx echo.Context) error {
 	return err
 }
 
+// ConfirmPasswordReset converts echo context to params.
+func (w *ServerInterfaceWrapper) ConfirmPasswordReset(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ConfirmPasswordReset(ctx)
+	return err
+}
+
 // RegisterAccount converts echo context to params.
 func (w *ServerInterfaceWrapper) RegisterAccount(ctx echo.Context) error {
 	var err error
@@ -277,6 +301,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.POST(baseURL+"/auth/logout", wrapper.Logout)
 	router.PUT(baseURL+"/auth/password", wrapper.ChangePassword)
 	router.POST(baseURL+"/auth/password-reset", wrapper.RequestPasswordReset)
+	router.POST(baseURL+"/auth/password-reset/confirm", wrapper.ConfirmPasswordReset)
 	router.POST(baseURL+"/auth/register", wrapper.RegisterAccount)
 	router.POST(baseURL+"/auth/token/refresh", wrapper.RefreshToken)
 
@@ -581,6 +606,40 @@ func (response RequestPasswordReset503ApplicationProblemPlusJSONResponse) VisitR
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ConfirmPasswordResetRequestObject struct {
+	Body *ConfirmPasswordResetJSONRequestBody
+}
+
+type ConfirmPasswordResetResponseObject interface {
+	VisitConfirmPasswordResetResponse(w http.ResponseWriter) error
+}
+
+type ConfirmPasswordReset200Response struct {
+}
+
+func (response ConfirmPasswordReset200Response) VisitConfirmPasswordResetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type ConfirmPasswordReset400ApplicationProblemPlusJSONResponse Problem
+
+func (response ConfirmPasswordReset400ApplicationProblemPlusJSONResponse) VisitConfirmPasswordResetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ConfirmPasswordReset500ApplicationProblemPlusJSONResponse Problem
+
+func (response ConfirmPasswordReset500ApplicationProblemPlusJSONResponse) VisitConfirmPasswordResetResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type RegisterAccountRequestObject struct {
 	Body *RegisterAccountJSONRequestBody
 }
@@ -678,6 +737,9 @@ type StrictServerInterface interface {
 	// パスワードリセットを要求する
 	// (POST /auth/password-reset)
 	RequestPasswordReset(ctx context.Context, request RequestPasswordResetRequestObject) (RequestPasswordResetResponseObject, error)
+	// パスワードリセットを完了する
+	// (POST /auth/password-reset/confirm)
+	ConfirmPasswordReset(ctx context.Context, request ConfirmPasswordResetRequestObject) (ConfirmPasswordResetResponseObject, error)
 	// アカウントを登録する
 	// (POST /auth/register)
 	RegisterAccount(ctx context.Context, request RegisterAccountRequestObject) (RegisterAccountResponseObject, error)
@@ -866,6 +928,35 @@ func (sh *strictHandler) RequestPasswordReset(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(RequestPasswordResetResponseObject); ok {
 		return validResponse.VisitRequestPasswordResetResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ConfirmPasswordReset operation middleware
+func (sh *strictHandler) ConfirmPasswordReset(ctx echo.Context) error {
+	var request ConfirmPasswordResetRequestObject
+
+	var body ConfirmPasswordResetJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ConfirmPasswordReset(ctx.Request().Context(), request.(ConfirmPasswordResetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ConfirmPasswordReset")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ConfirmPasswordResetResponseObject); ok {
+		return validResponse.VisitConfirmPasswordResetResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}
