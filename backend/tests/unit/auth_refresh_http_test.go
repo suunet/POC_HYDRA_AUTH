@@ -43,6 +43,7 @@ func newRefreshTestEcho(t *testing.T, repo *fakeRefreshRepository) http.Handler 
 		command.NewLogoutHandler(&fakeRefreshRepository{}),
 		command.NewChangePasswordHandler(&fakePasswordChangeRepository{}),
 		command.NewRequestPasswordResetHandler(&fakeResetRequestRepository{users: map[string]fakeResetUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
+		command.NewConfirmPasswordResetHandler(&fakeResetConfirmRepository{records: map[string]domain.PasswordResetTokenRecord{}}),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
