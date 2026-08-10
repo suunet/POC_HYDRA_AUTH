@@ -33,6 +33,8 @@ func newChangePasswordTestEcho(t *testing.T, repo *fakePasswordChangeRepository,
 		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
 		command.NewLogoutHandler(&fakeRefreshRepository{}),
 		command.NewChangePasswordHandler(repo),
+		command.NewRequestPasswordResetHandler(&fakeResetRequestRepository{users: map[string]fakeResetUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
+		command.NewConfirmPasswordResetHandler(&fakeResetConfirmRepository{records: map[string]domain.PasswordResetTokenRecord{}}),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
@@ -140,6 +142,8 @@ func TestUC010_ChangePasswordHTTP_MissingMiddlewareWiring_FailsClosed401(t *test
 		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
 		command.NewLogoutHandler(&fakeRefreshRepository{}),
 		command.NewChangePasswordHandler(&fakePasswordChangeRepository{}),
+		command.NewRequestPasswordResetHandler(&fakeResetRequestRepository{users: map[string]fakeResetUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
+		command.NewConfirmPasswordResetHandler(&fakeResetConfirmRepository{records: map[string]domain.PasswordResetTokenRecord{}}),
 	), passthrough)
 
 	res := putPassword(t, e, "Bearer "+accessTokenFor(t, key, uuid.New()),

@@ -64,8 +64,9 @@ func (f *fakeRateLimiter) Allow(ctx context.Context, key string) (ratelimit.Resu
 }
 
 type fakeMailer struct {
-	sent      []string
-	sendError error
+	sent       []string
+	sentResets []string
+	sendError  error
 }
 
 func (f *fakeMailer) SendConfirmationEmail(ctx context.Context, to, token string) error {
@@ -76,19 +77,31 @@ func (f *fakeMailer) SendConfirmationEmail(ctx context.Context, to, token string
 	return nil
 }
 
+func (f *fakeMailer) SendPasswordResetEmail(ctx context.Context, to, token string) error {
+	if f.sendError != nil {
+		return f.sendError
+	}
+	f.sentResets = append(f.sentResets, to+":"+token)
+	return nil
+}
+
 type testDeps struct {
-	repo       *fakeUserRepository
-	resendRepo *fakeResendRepository
-	limiter    *fakeRateLimiter
-	mailer     *fakeMailer
+	repo             *fakeUserRepository
+	resendRepo       *fakeResendRepository
+	resetRepo        *fakeResetRequestRepository
+	resetConfirmRepo *fakeResetConfirmRepository
+	limiter          *fakeRateLimiter
+	mailer           *fakeMailer
 }
 
 func newTestDeps() *testDeps {
 	return &testDeps{
-		repo:       &fakeUserRepository{existing: map[string]bool{}},
-		resendRepo: &fakeResendRepository{users: map[string]fakeResendUser{}},
-		limiter:    &fakeRateLimiter{blocked: map[string]bool{}},
-		mailer:     &fakeMailer{},
+		repo:             &fakeUserRepository{existing: map[string]bool{}},
+		resendRepo:       &fakeResendRepository{users: map[string]fakeResendUser{}},
+		resetRepo:        &fakeResetRequestRepository{users: map[string]fakeResetUser{}},
+		resetConfirmRepo: &fakeResetConfirmRepository{records: map[string]domain.PasswordResetTokenRecord{}},
+		limiter:          &fakeRateLimiter{blocked: map[string]bool{}},
+		mailer:           &fakeMailer{},
 	}
 }
 
@@ -105,6 +118,8 @@ func newAuthTestEcho(t *testing.T, d *testDeps) http.Handler {
 		command.NewRefreshTokenHandler(&fakeRefreshRepository{}, key),
 		command.NewLogoutHandler(&fakeRefreshRepository{}),
 		command.NewChangePasswordHandler(&fakePasswordChangeRepository{}),
+		command.NewRequestPasswordResetHandler(d.resetRepo, d.limiter, d.mailer),
+		command.NewConfirmPasswordResetHandler(d.resetConfirmRepo),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }

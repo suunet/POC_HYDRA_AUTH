@@ -40,6 +40,7 @@ type RateLimiter interface {
 
 type Mailer interface {
 	SendConfirmationEmail(ctx context.Context, to, plainToken string) error
+	SendPasswordResetEmail(ctx context.Context, to, plainToken string) error
 }
 
 type RegisterAccountHandler struct {

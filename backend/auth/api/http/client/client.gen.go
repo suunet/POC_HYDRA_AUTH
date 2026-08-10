@@ -71,6 +71,21 @@ type PasswordChangeResponse struct {
 	RevocationReason string `json:"revocation_reason"`
 }
 
+// PasswordResetConfirmRequest defines model for PasswordResetConfirmRequest.
+type PasswordResetConfirmRequest struct {
+	// NewPassword VAR-02（最小15・最大64文字・Unicode許容・UTF-8で72バイト以下）
+	NewPassword string `json:"new_password"`
+
+	// Token パスワードリセットトークン（平文。INF-05はSHA-256ハッシュのみ保存し照合する）
+	Token string `json:"token"`
+}
+
+// PasswordResetRequest defines model for PasswordResetRequest.
+type PasswordResetRequest struct {
+	// Email VAR-01（RFC5322準拠・最大254文字）
+	Email openapi_types.Email `json:"email"`
+}
+
 // Problem RFC 9457 Problem Details（NFR-06）。retry_after・revocation_reason は拡張フィールド
 type Problem struct {
 	Detail *string `json:"detail,omitempty"`
@@ -120,6 +135,12 @@ type LogoutJSONRequestBody = LogoutRequest
 
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = ChangePasswordRequest
+
+// RequestPasswordResetJSONRequestBody defines body for RequestPasswordReset for application/json ContentType.
+type RequestPasswordResetJSONRequestBody = PasswordResetRequest
+
+// ConfirmPasswordResetJSONRequestBody defines body for ConfirmPasswordReset for application/json ContentType.
+type ConfirmPasswordResetJSONRequestBody = PasswordResetConfirmRequest
 
 // RegisterAccountJSONRequestBody defines body for RegisterAccount for application/json ContentType.
 type RegisterAccountJSONRequestBody = RegisterAccountRequest
@@ -224,6 +245,16 @@ type ClientInterface interface {
 	ChangePasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ChangePassword(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestPasswordResetWithBody request with any body
+	RequestPasswordResetWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	RequestPasswordReset(ctx context.Context, body RequestPasswordResetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ConfirmPasswordResetWithBody request with any body
+	ConfirmPasswordResetWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ConfirmPasswordReset(ctx context.Context, body ConfirmPasswordResetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RegisterAccountWithBody request with any body
 	RegisterAccountWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -346,6 +377,54 @@ func (c *Client) ChangePasswordWithBody(ctx context.Context, contentType string,
 
 func (c *Client) ChangePassword(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewChangePasswordRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RequestPasswordResetWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestPasswordResetRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RequestPasswordReset(ctx context.Context, body RequestPasswordResetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestPasswordResetRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ConfirmPasswordResetWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConfirmPasswordResetRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ConfirmPasswordReset(ctx context.Context, body ConfirmPasswordResetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConfirmPasswordResetRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -604,6 +683,86 @@ func NewChangePasswordRequestWithBody(server string, contentType string, body io
 	return req, nil
 }
 
+// NewRequestPasswordResetRequest calls the generic RequestPasswordReset builder with application/json body
+func NewRequestPasswordResetRequest(server string, body RequestPasswordResetJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRequestPasswordResetRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewRequestPasswordResetRequestWithBody generates requests for RequestPasswordReset with any type of body
+func NewRequestPasswordResetRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/auth/password-reset")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewConfirmPasswordResetRequest calls the generic ConfirmPasswordReset builder with application/json body
+func NewConfirmPasswordResetRequest(server string, body ConfirmPasswordResetJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewConfirmPasswordResetRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewConfirmPasswordResetRequestWithBody generates requests for ConfirmPasswordReset with any type of body
+func NewConfirmPasswordResetRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/auth/password-reset/confirm")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewRegisterAccountRequest calls the generic RegisterAccount builder with application/json body
 func NewRegisterAccountRequest(server string, body RegisterAccountJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -752,6 +911,16 @@ type ClientWithResponsesInterface interface {
 
 	ChangePasswordWithResponse(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangePasswordResponse, error)
 
+	// RequestPasswordResetWithBodyWithResponse request with any body
+	RequestPasswordResetWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestPasswordResetResponse, error)
+
+	RequestPasswordResetWithResponse(ctx context.Context, body RequestPasswordResetJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestPasswordResetResponse, error)
+
+	// ConfirmPasswordResetWithBodyWithResponse request with any body
+	ConfirmPasswordResetWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfirmPasswordResetResponse, error)
+
+	ConfirmPasswordResetWithResponse(ctx context.Context, body ConfirmPasswordResetJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfirmPasswordResetResponse, error)
+
 	// RegisterAccountWithBodyWithResponse request with any body
 	RegisterAccountWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterAccountResponse, error)
 
@@ -878,6 +1047,53 @@ func (r ChangePasswordResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ChangePasswordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type RequestPasswordResetResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	ApplicationproblemJSON400 *Problem
+	ApplicationproblemJSON429 *Problem
+	ApplicationproblemJSON503 *Problem
+}
+
+// Status returns HTTPResponse.Status
+func (r RequestPasswordResetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RequestPasswordResetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ConfirmPasswordResetResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	ApplicationproblemJSON400 *Problem
+	ApplicationproblemJSON500 *Problem
+}
+
+// Status returns HTTPResponse.Status
+func (r ConfirmPasswordResetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ConfirmPasswordResetResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -1014,6 +1230,40 @@ func (c *ClientWithResponses) ChangePasswordWithResponse(ctx context.Context, bo
 		return nil, err
 	}
 	return ParseChangePasswordResponse(rsp)
+}
+
+// RequestPasswordResetWithBodyWithResponse request with arbitrary body returning *RequestPasswordResetResponse
+func (c *ClientWithResponses) RequestPasswordResetWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestPasswordResetResponse, error) {
+	rsp, err := c.RequestPasswordResetWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestPasswordResetResponse(rsp)
+}
+
+func (c *ClientWithResponses) RequestPasswordResetWithResponse(ctx context.Context, body RequestPasswordResetJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestPasswordResetResponse, error) {
+	rsp, err := c.RequestPasswordReset(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestPasswordResetResponse(rsp)
+}
+
+// ConfirmPasswordResetWithBodyWithResponse request with arbitrary body returning *ConfirmPasswordResetResponse
+func (c *ClientWithResponses) ConfirmPasswordResetWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfirmPasswordResetResponse, error) {
+	rsp, err := c.ConfirmPasswordResetWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfirmPasswordResetResponse(rsp)
+}
+
+func (c *ClientWithResponses) ConfirmPasswordResetWithResponse(ctx context.Context, body ConfirmPasswordResetJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfirmPasswordResetResponse, error) {
+	rsp, err := c.ConfirmPasswordReset(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfirmPasswordResetResponse(rsp)
 }
 
 // RegisterAccountWithBodyWithResponse request with arbitrary body returning *RegisterAccountResponse
@@ -1244,6 +1494,79 @@ func ParseChangePasswordResponse(rsp *http.Response) (*ChangePasswordResponse, e
 			return nil, err
 		}
 		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRequestPasswordResetResponse parses an HTTP response from a RequestPasswordResetWithResponse call
+func ParseRequestPasswordResetResponse(rsp *http.Response) (*RequestPasswordResetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RequestPasswordResetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseConfirmPasswordResetResponse parses an HTTP response from a ConfirmPasswordResetWithResponse call
+func ParseConfirmPasswordResetResponse(rsp *http.Response) (*ConfirmPasswordResetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ConfirmPasswordResetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest Problem

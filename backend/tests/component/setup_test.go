@@ -42,6 +42,16 @@ func (m *stubMailer) SendConfirmationEmail(ctx context.Context, to, plainToken s
 	return nil
 }
 
+func (m *stubMailer) SendPasswordResetEmail(ctx context.Context, to, plainToken string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sendError != nil {
+		return m.sendError
+	}
+	m.sent = append(m.sent, sentMail{To: to, Token: plainToken})
+	return nil
+}
+
 func (m *stubMailer) FailWith(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -98,6 +108,7 @@ func TestMain(m *testing.M) {
 	limiter := ratelimit.NewRegistrationLimiter(redisClient)
 	verifyLimiter := ratelimit.NewEmailVerifyLimiter(redisClient, []byte("component-test-secret"))
 	resendLimiter := ratelimit.NewResendEmailLimiter(redisClient)
+	resetLimiter := ratelimit.NewPasswordResetLimiter(redisClient)
 	loginLockout := ratelimit.NewLoginLockout(redisClient)
 
 	// NOTE: componentテストは実インフラ（DB/Redis）を使うが、JWT署名鍵はテスト内で都度生成する
@@ -114,6 +125,7 @@ func TestMain(m *testing.M) {
 		Limiter:       limiter,
 		VerifyLimiter: verifyLimiter,
 		ResendLimiter: resendLimiter,
+		ResetLimiter:  resetLimiter,
 		LoginLockout:  loginLockout,
 		Mailer:        mailer,
 		JWTSigningKey: jwtKey,
