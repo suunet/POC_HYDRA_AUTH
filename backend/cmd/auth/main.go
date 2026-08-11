@@ -72,6 +72,7 @@ func main() {
 	verifyLimiter := ratelimit.NewEmailVerifyLimiter(redisClient, []byte(hmacSecret))
 	resendLimiter := ratelimit.NewResendEmailLimiter(redisClient)
 	resetLimiter := ratelimit.NewPasswordResetLimiter(redisClient)
+	inviteLimiter := ratelimit.NewInvitationLimiter(redisClient)
 	loginLockout := ratelimit.NewLoginLockout(redisClient)
 	mailer := mail.NewSMTPMailer(fmt.Sprintf("%s:%s", smtpHost, smtpPort), smtpFrom)
 
@@ -87,6 +88,7 @@ func main() {
 		VerifyLimiter: verifyLimiter,
 		ResendLimiter: resendLimiter,
 		ResetLimiter:  resetLimiter,
+		InviteLimiter: inviteLimiter,
 		LoginLockout:  loginLockout,
 		Mailer:        mailer,
 		JWTSigningKey: signingKey,

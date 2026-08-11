@@ -23,10 +23,12 @@ type Handler struct {
 	changePassword *command.ChangePasswordHandler
 	requestReset   *command.RequestPasswordResetHandler
 	confirmReset   *command.ConfirmPasswordResetHandler
+	inviteAdmin    *command.InviteAdminHandler
+	acceptInvite   *command.AcceptInvitationHandler
 }
 
-func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler, changePassword *command.ChangePasswordHandler, requestReset *command.RequestPasswordResetHandler, confirmReset *command.ConfirmPasswordResetHandler) *Handler {
-	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout, changePassword: changePassword, requestReset: requestReset, confirmReset: confirmReset}
+func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler, changePassword *command.ChangePasswordHandler, requestReset *command.RequestPasswordResetHandler, confirmReset *command.ConfirmPasswordResetHandler, inviteAdmin *command.InviteAdminHandler, acceptInvite *command.AcceptInvitationHandler) *Handler {
+	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout, changePassword: changePassword, requestReset: requestReset, confirmReset: confirmReset, inviteAdmin: inviteAdmin, acceptInvite: acceptInvite}
 }
 
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
@@ -118,6 +120,61 @@ func (h *Handler) RequestPasswordReset(ctx context.Context, req RequestPasswordR
 		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "メールアドレスの形式が不正です")
 	case errors.Is(err, command.ErrMailDeliveryFail):
 		return nil, commonhttp.NewProblemError(http.StatusServiceUnavailable, "mail-delivery-error", "リセットメールの送信に失敗しました")
+	default:
+		return nil, err
+	}
+}
+
+func (h *Handler) AcceptInvitation(ctx context.Context, req AcceptInvitationRequestObject) (AcceptInvitationResponseObject, error) {
+	if req.Body == nil {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
+	}
+	// NOTE: openapiのminLength:1をバインダは検証しないため必須検査をここで行う（VerifyEmailと同型）
+	if req.Body.Token == "" {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "トークンが必要です")
+	}
+
+	err := h.acceptInvite.Handle(ctx, req.Body.Token, req.Body.Password)
+	switch {
+	case err == nil:
+		return AcceptInvitation200Response{}, nil
+	case errors.Is(err, domain.ErrInvalidPassword):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "パスワードは15〜64文字で指定してください")
+	case errors.Is(err, command.ErrInvalidInvitationToken):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "invalid-token", "無効な招待トークン")
+	case errors.Is(err, command.ErrInvitationTokenExpired):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "token-expired", "招待トークンの有効期限が切れています")
+	case errors.Is(err, domain.ErrEmailAlreadyRegistered):
+		return nil, commonhttp.NewProblemError(http.StatusConflict, "email-already-registered", "このメールアドレスのアカウントは既に存在します")
+	default:
+		// E5ほか未分類の内部失敗はUC-012指定のinternal-error（Tx失敗はUseCaseが全ロールバック・ERROR記録済み）
+		return nil, commonhttp.NewProblemError(http.StatusInternalServerError, "internal-error", "サーバ内部エラーが発生しました")
+	}
+}
+
+func (h *Handler) InviteAdmin(ctx context.Context, req InviteAdminRequestObject) (InviteAdminResponseObject, error) {
+	if req.Body == nil {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
+	}
+
+	err := h.inviteAdmin.Handle(ctx, string(req.Body.Email), req.Body.Role)
+	var rateLimited *command.RateLimitedError
+	switch {
+	case err == nil:
+		return InviteAdmin200Response{}, nil
+	case errors.As(err, &rateLimited):
+		problem := commonhttp.NewProblemError(http.StatusTooManyRequests, "rate-limit-exceeded", "招待リクエストが多すぎます")
+		return nil, problem.WithRetryAfter(int(math.Ceil(rateLimited.RetryAfter.Seconds())))
+	case errors.Is(err, domain.ErrInvalidEmail):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "メールアドレスの形式が不正です")
+	case errors.Is(err, domain.ErrInvalidAdminRole):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "指定できるロールは管理者ロールのみです")
+	case errors.Is(err, command.ErrRoleAlreadyAssigned):
+		return nil, commonhttp.NewProblemError(http.StatusConflict, "role-already-assigned", "既に管理者ロールが付与されています")
+	case errors.Is(err, domain.ErrEmailAlreadyRegistered):
+		return nil, commonhttp.NewProblemError(http.StatusConflict, "email-already-registered", "このメールアドレスのアカウントは既に存在します")
+	case errors.Is(err, command.ErrMailDeliveryFail):
+		return nil, commonhttp.NewProblemError(http.StatusServiceUnavailable, "mail-delivery-error", "招待メールの送信に失敗しました")
 	default:
 		return nil, err
 	}
@@ -273,28 +330,31 @@ func (h *Handler) ChangePassword(ctx context.Context, req ChangePasswordRequestO
 // オーバーライドはPOST/PUTのみ＝他メソッドの保護ルートを追加する場合は該当メソッドの追加実装が必要
 type protectedRouter struct {
 	*echo.Echo
-	protected map[string]echo.MiddlewareFunc
+	protected map[string][]echo.MiddlewareFunc
 }
 
 func (r protectedRouter) POST(path string, handler echo.HandlerFunc, middleware ...echo.MiddlewareFunc) *echo.Route {
-	if mw, ok := r.protected[path]; ok {
-		middleware = append(middleware, mw)
+	if mws, ok := r.protected[path]; ok {
+		middleware = append(middleware, mws...)
 	}
 	return r.Echo.POST(path, handler, middleware...)
 }
 
 func (r protectedRouter) PUT(path string, handler echo.HandlerFunc, middleware ...echo.MiddlewareFunc) *echo.Route {
-	if mw, ok := r.protected[path]; ok {
-		middleware = append(middleware, mw)
+	if mws, ok := r.protected[path]; ok {
+		middleware = append(middleware, mws...)
 	}
 	return r.Echo.PUT(path, handler, middleware...)
 }
 
 // Register は認証必須ルート（openapi security: bearerAuth）へ jwtAuth を適用して全ルートを登録する。
+// admin系ルートは jwtAuth の後段にロール認可（CND-17 OR評価）を連結する。
 func Register(e *echo.Echo, h *Handler, jwtAuth echo.MiddlewareFunc) {
-	router := protectedRouter{Echo: e, protected: map[string]echo.MiddlewareFunc{
-		"/auth/logout":   jwtAuth, // SCR-06（UC-007・CND-06）
-		"/auth/password": jwtAuth, // SCR-09（UC-010・CND-06）
+	router := protectedRouter{Echo: e, protected: map[string][]echo.MiddlewareFunc{
+		"/auth/logout":   {jwtAuth}, // SCR-06（UC-007・CND-06）
+		"/auth/password": {jwtAuth}, // SCR-09（UC-010・CND-06）
+		// SCR-10（UC-011・CND-17）: super_admin限定（M2・403）。ログctxはUC-011規定
+		"/admin/invitations": {jwtAuth, commonhttp.RequireRoles("admin_invitation", domain.RoleSuperAdmin)},
 	}}
 	RegisterHandlersWithBaseURL(router, NewStrictHandler(h, nil), "")
 }

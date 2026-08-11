@@ -433,6 +433,139 @@ paths:
                 type: https://example.com/probs/internal-error
                 title: Internal Server Error
                 status: 500
+  /admin/invitations:
+    post:
+      summary: 管理者を招待する
+      operationId: inviteAdmin
+      tags:
+        - commands
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminInvitationRequest'
+      responses:
+        '200':
+          description: 招待メールを送信した（UC-011・FR-11。再招待時は既存有効トークンを無効化=FR-12・CND-19。事後の「招待済み未受付」はINF-07の有効未使用トークンの存在で表す=STM-01遷移なし）
+        '400':
+          description: メールアドレス形式不正（E1・VAR-01）または無効なロール指定（E2・VAR-09）。パース不能メールはバインド検証が一律400で先行（variations.md共通注記）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/validation-error
+                title: Bad Request
+                status: 400
+        '401':
+          description: アクセストークン検証失敗（M1・FR-19一様）
+          headers:
+            WWW-Authenticate:
+              description: Bearer チャレンジ
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/invalid-token
+                title: Unauthorized
+                status: 401
+        '403':
+          description: super_admin ロール不足（M2・CND-17 OR評価）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/forbidden
+                title: Forbidden
+                status: 403
+        '409':
+          description: 管理者ロール付与済み（E4=role-already-assigned・CND-11）または既存アカウント実在（E6=email-already-registered・招待時遮断＝管理者化はBUC-A07経路）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/role-already-assigned
+                title: Conflict
+                status: 409
+        '429':
+          description: 招待リクエストレートリミット超過（E3・VAR-14。メールキー・一様適用・retry_afterはTTL残秒数）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数（bodyのretry_afterと同値）
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/rate-limit-exceeded
+                title: Too Many Requests
+                status: 429
+                retry_after: 240
+        '503':
+          description: 招待メール送信失敗（E5。既存トークン無効化・新トークン保存は全ロールバック済み＝旧有効トークンが残る。ただしレート窓は消費）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/mail-delivery-error
+                title: Service Unavailable
+                status: 503
+  /auth/invitation/accept:
+    post:
+      summary: 招待を受け付ける
+      operationId: acceptInvitation
+      tags:
+        - commands
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationAcceptRequest'
+      responses:
+        '200':
+          description: 管理者アカウント作成完了（UC-012・FR-13。単一Txでユーザー作成〔未認証〕＋紐付けロール付与＋トークン消費＋他有効トークン一括無効化〔CND-19〕。認証は行わずUC-005でログイン）
+        '400':
+          description: 強度不足（E1=validation-error・VAR-02）／トークン不存在・使用済み（E2/E3=invalid-token・応答同一で状態を区別しない）／期限切れ（E4=token-expired・CND-12・状態更新なしno-op）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/invalid-token
+                title: Bad Request
+                status: 400
+        '409':
+          description: 既存アカウント実在（E6=email-already-registered・招待発行〜受付間の自己登録レース対策・トークン非消費・500にしない）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/email-already-registered
+                title: Conflict
+                status: 409
+        '500':
+          description: トランザクション失敗（E5=internal-error・ユーザー作成/ロール付与/トークン状態とも全ロールバック済み）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/internal-error
+                title: Internal Server Error
+                status: 500
 components:
   securitySchemes:
     bearerAuth:
@@ -543,6 +676,36 @@ components:
           format: email
           maxLength: 254
           description: VAR-01（RFC5322準拠・最大254文字）
+    InvitationAcceptRequest:
+      type: object
+      required:
+        - token
+        - password
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: 招待トークン（平文。INF-07はSHA-256ハッシュのみ保存し照合する）
+        password:
+          type: string
+          minLength: 15
+          maxLength: 64
+          description: VAR-02（最小15・最大64文字・Unicode許容・UTF-8で72バイト以下）
+    AdminInvitationRequest:
+      type: object
+      required:
+        - email
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: VAR-01（RFC5322準拠・最大254文字）
+        role:
+          type: string
+          minLength: 1
+          description: VAR-09（`super_admin`・`operator`・`system_admin` のいずれか。判定はUseCase層のE2）
     PasswordResetConfirmRequest:
       type: object
       required:

@@ -3,6 +3,7 @@ package unit
 import (
 	"bytes"
 	"context"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -64,9 +65,10 @@ func (f *fakeRateLimiter) Allow(ctx context.Context, key string) (ratelimit.Resu
 }
 
 type fakeMailer struct {
-	sent       []string
-	sentResets []string
-	sendError  error
+	sent        []string
+	sentResets  []string
+	sentInvites []string
+	sendError   error
 }
 
 func (f *fakeMailer) SendConfirmationEmail(ctx context.Context, to, token string) error {
@@ -85,11 +87,21 @@ func (f *fakeMailer) SendPasswordResetEmail(ctx context.Context, to, token strin
 	return nil
 }
 
+func (f *fakeMailer) SendInvitationEmail(ctx context.Context, to, token string) error {
+	if f.sendError != nil {
+		return f.sendError
+	}
+	f.sentInvites = append(f.sentInvites, to+":"+token)
+	return nil
+}
+
 type testDeps struct {
 	repo             *fakeUserRepository
 	resendRepo       *fakeResendRepository
 	resetRepo        *fakeResetRequestRepository
 	resetConfirmRepo *fakeResetConfirmRepository
+	inviteRepo       *fakeInviteRepository
+	acceptRepo       *fakeAcceptInvitationRepository
 	limiter          *fakeRateLimiter
 	mailer           *fakeMailer
 }
@@ -100,6 +112,8 @@ func newTestDeps() *testDeps {
 		resendRepo:       &fakeResendRepository{users: map[string]fakeResendUser{}},
 		resetRepo:        &fakeResetRequestRepository{users: map[string]fakeResetUser{}},
 		resetConfirmRepo: &fakeResetConfirmRepository{records: map[string]domain.PasswordResetTokenRecord{}},
+		inviteRepo:       &fakeInviteRepository{users: map[string]fakeInviteUser{}},
+		acceptRepo:       &fakeAcceptInvitationRepository{records: map[string]domain.InvitationTokenRecord{}, users: map[string][]string{}},
 		limiter:          &fakeRateLimiter{blocked: map[string]bool{}},
 		mailer:           &fakeMailer{},
 	}
@@ -107,9 +121,14 @@ func newTestDeps() *testDeps {
 
 func newAuthTestEcho(t *testing.T, d *testDeps) http.Handler {
 	t.Helper()
+	return newAuthTestEchoKeyed(t, d, testSigningKey(nil))
+}
+
+// newAuthTestEchoKeyed は署名鍵を注入する変種（保護ルートへ自前発行ATでアクセスするテスト用）
+func newAuthTestEchoKeyed(t *testing.T, d *testDeps, key *rsa.PrivateKey) http.Handler {
+	t.Helper()
 	logger := applog.New(&bytes.Buffer{}, "auth-service")
 	e := commonhttp.NewEcho(logger)
-	key := testSigningKey(nil)
 	apihttp.Register(e, apihttp.NewHandler(
 		command.NewRegisterAccountHandler(d.repo, d.limiter, d.mailer),
 		command.NewVerifyEmailHandler(&fakeTokenRepository{}, &fakeRateLimiter{blocked: map[string]bool{}}),
@@ -120,6 +139,8 @@ func newAuthTestEcho(t *testing.T, d *testDeps) http.Handler {
 		command.NewChangePasswordHandler(&fakePasswordChangeRepository{}),
 		command.NewRequestPasswordResetHandler(d.resetRepo, d.limiter, d.mailer),
 		command.NewConfirmPasswordResetHandler(d.resetConfirmRepo),
+		command.NewInviteAdminHandler(d.inviteRepo, d.limiter, d.mailer),
+		command.NewAcceptInvitationHandler(d.acceptRepo),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }

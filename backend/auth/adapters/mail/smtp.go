@@ -27,6 +27,12 @@ func (m *SMTPMailer) SendPasswordResetEmail(ctx context.Context, to, plainToken 
 	return m.send(to, "パスワードの再設定", body)
 }
 
+func (m *SMTPMailer) SendInvitationEmail(ctx context.Context, to, plainToken string) error {
+	// NOTE: 有効期限はVAR-07（24時間）。本文へ内部IDは出さない
+	body := "管理者として招待されています。以下のトークンで受付を完了してください（有効期限24時間）:\r\n\r\n" + plainToken + "\r\n"
+	return m.send(to, "管理者招待のご案内", body)
+}
+
 func (m *SMTPMailer) send(to, subjectText, body string) error {
 	// NOTE: 非ASCII本文/件名のためMIMEヘッダを明示（charset欠落だと受信側がlatin-1解釈し文字化けする）
 	subject := mime.BEncoding.Encode("UTF-8", subjectText)

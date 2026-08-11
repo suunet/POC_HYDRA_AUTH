@@ -18,6 +18,15 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
+// AdminInvitationRequest defines model for AdminInvitationRequest.
+type AdminInvitationRequest struct {
+	// Email VAR-01（RFC5322準拠・最大254文字）
+	Email openapi_types.Email `json:"email"`
+
+	// Role VAR-09（`super_admin`・`operator`・`system_admin` のいずれか。判定はUseCase層のE2）
+	Role string `json:"role"`
+}
+
 // ChangePasswordRequest defines model for ChangePasswordRequest.
 type ChangePasswordRequest struct {
 	// CurrentPassword 現在のパスワード（CND-16照合用。形式検証はしない＝照合失敗として403へ）
@@ -37,6 +46,15 @@ type EmailVerifyRequest struct {
 type EmailVerifyResendRequest struct {
 	// Email VAR-01（RFC5322準拠・最大254文字）
 	Email openapi_types.Email `json:"email"`
+}
+
+// InvitationAcceptRequest defines model for InvitationAcceptRequest.
+type InvitationAcceptRequest struct {
+	// Password VAR-02（最小15・最大64文字・Unicode許容・UTF-8で72バイト以下）
+	Password string `json:"password"`
+
+	// Token 招待トークン（平文。INF-07はSHA-256ハッシュのみ保存し照合する）
+	Token string `json:"token"`
 }
 
 // LoginRequest defines model for LoginRequest.
@@ -119,11 +137,17 @@ type RegisterAccountRequest struct {
 	Password string `json:"password"`
 }
 
+// InviteAdminJSONRequestBody defines body for InviteAdmin for application/json ContentType.
+type InviteAdminJSONRequestBody = AdminInvitationRequest
+
 // VerifyEmailJSONRequestBody defines body for VerifyEmail for application/json ContentType.
 type VerifyEmailJSONRequestBody = EmailVerifyRequest
 
 // ResendEmailVerificationJSONRequestBody defines body for ResendEmailVerification for application/json ContentType.
 type ResendEmailVerificationJSONRequestBody = EmailVerifyResendRequest
+
+// AcceptInvitationJSONRequestBody defines body for AcceptInvitation for application/json ContentType.
+type AcceptInvitationJSONRequestBody = InvitationAcceptRequest
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
@@ -148,12 +172,18 @@ type RefreshTokenJSONRequestBody = RefreshTokenRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// 管理者を招待する
+	// (POST /admin/invitations)
+	InviteAdmin(ctx echo.Context) error
 	// メールアドレスを確認する
 	// (POST /auth/email-verify)
 	VerifyEmail(ctx echo.Context) error
 	// メール確認トークンを再送する
 	// (POST /auth/email-verify/resend)
 	ResendEmailVerification(ctx echo.Context) error
+	// 招待を受け付ける
+	// (POST /auth/invitation/accept)
+	AcceptInvitation(ctx echo.Context) error
 	// ログインする
 	// (POST /auth/login)
 	Login(ctx echo.Context) error
@@ -182,6 +212,17 @@ type ServerInterfaceWrapper struct {
 	Handler ServerInterface
 }
 
+// InviteAdmin converts echo context to params.
+func (w *ServerInterfaceWrapper) InviteAdmin(ctx echo.Context) error {
+	var err error
+
+	ctx.Set(BearerAuthScopes, []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.InviteAdmin(ctx)
+	return err
+}
+
 // VerifyEmail converts echo context to params.
 func (w *ServerInterfaceWrapper) VerifyEmail(ctx echo.Context) error {
 	var err error
@@ -197,6 +238,15 @@ func (w *ServerInterfaceWrapper) ResendEmailVerification(ctx echo.Context) error
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.ResendEmailVerification(ctx)
+	return err
+}
+
+// AcceptInvitation converts echo context to params.
+func (w *ServerInterfaceWrapper) AcceptInvitation(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.AcceptInvitation(ctx)
 	return err
 }
 
@@ -295,8 +345,10 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 		Handler: si,
 	}
 
+	router.POST(baseURL+"/admin/invitations", wrapper.InviteAdmin)
 	router.POST(baseURL+"/auth/email-verify", wrapper.VerifyEmail)
 	router.POST(baseURL+"/auth/email-verify/resend", wrapper.ResendEmailVerification)
+	router.POST(baseURL+"/auth/invitation/accept", wrapper.AcceptInvitation)
 	router.POST(baseURL+"/auth/login", wrapper.Login)
 	router.POST(baseURL+"/auth/logout", wrapper.Logout)
 	router.PUT(baseURL+"/auth/password", wrapper.ChangePassword)
@@ -305,6 +357,92 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.POST(baseURL+"/auth/register", wrapper.RegisterAccount)
 	router.POST(baseURL+"/auth/token/refresh", wrapper.RefreshToken)
 
+}
+
+type InviteAdminRequestObject struct {
+	Body *InviteAdminJSONRequestBody
+}
+
+type InviteAdminResponseObject interface {
+	VisitInviteAdminResponse(w http.ResponseWriter) error
+}
+
+type InviteAdmin200Response struct {
+}
+
+func (response InviteAdmin200Response) VisitInviteAdminResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type InviteAdmin400ApplicationProblemPlusJSONResponse Problem
+
+func (response InviteAdmin400ApplicationProblemPlusJSONResponse) VisitInviteAdminResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type InviteAdmin401ResponseHeaders struct {
+	WWWAuthenticate string
+}
+
+type InviteAdmin401ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers InviteAdmin401ResponseHeaders
+}
+
+func (response InviteAdmin401ApplicationProblemPlusJSONResponse) VisitInviteAdminResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type InviteAdmin403ApplicationProblemPlusJSONResponse Problem
+
+func (response InviteAdmin403ApplicationProblemPlusJSONResponse) VisitInviteAdminResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type InviteAdmin409ApplicationProblemPlusJSONResponse Problem
+
+func (response InviteAdmin409ApplicationProblemPlusJSONResponse) VisitInviteAdminResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type InviteAdmin429ResponseHeaders struct {
+	RetryAfter int
+}
+
+type InviteAdmin429ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers InviteAdmin429ResponseHeaders
+}
+
+func (response InviteAdmin429ApplicationProblemPlusJSONResponse) VisitInviteAdminResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type InviteAdmin503ApplicationProblemPlusJSONResponse Problem
+
+func (response InviteAdmin503ApplicationProblemPlusJSONResponse) VisitInviteAdminResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type VerifyEmailRequestObject struct {
@@ -387,6 +525,49 @@ type ResendEmailVerification503ApplicationProblemPlusJSONResponse Problem
 func (response ResendEmailVerification503ApplicationProblemPlusJSONResponse) VisitResendEmailVerificationResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AcceptInvitationRequestObject struct {
+	Body *AcceptInvitationJSONRequestBody
+}
+
+type AcceptInvitationResponseObject interface {
+	VisitAcceptInvitationResponse(w http.ResponseWriter) error
+}
+
+type AcceptInvitation200Response struct {
+}
+
+func (response AcceptInvitation200Response) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type AcceptInvitation400ApplicationProblemPlusJSONResponse Problem
+
+func (response AcceptInvitation400ApplicationProblemPlusJSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AcceptInvitation409ApplicationProblemPlusJSONResponse Problem
+
+func (response AcceptInvitation409ApplicationProblemPlusJSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AcceptInvitation500ApplicationProblemPlusJSONResponse Problem
+
+func (response AcceptInvitation500ApplicationProblemPlusJSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -719,12 +900,18 @@ func (response RefreshToken401ApplicationProblemPlusJSONResponse) VisitRefreshTo
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// 管理者を招待する
+	// (POST /admin/invitations)
+	InviteAdmin(ctx context.Context, request InviteAdminRequestObject) (InviteAdminResponseObject, error)
 	// メールアドレスを確認する
 	// (POST /auth/email-verify)
 	VerifyEmail(ctx context.Context, request VerifyEmailRequestObject) (VerifyEmailResponseObject, error)
 	// メール確認トークンを再送する
 	// (POST /auth/email-verify/resend)
 	ResendEmailVerification(ctx context.Context, request ResendEmailVerificationRequestObject) (ResendEmailVerificationResponseObject, error)
+	// 招待を受け付ける
+	// (POST /auth/invitation/accept)
+	AcceptInvitation(ctx context.Context, request AcceptInvitationRequestObject) (AcceptInvitationResponseObject, error)
 	// ログインする
 	// (POST /auth/login)
 	Login(ctx context.Context, request LoginRequestObject) (LoginResponseObject, error)
@@ -758,6 +945,35 @@ func NewStrictHandler(ssi StrictServerInterface, middlewares []StrictMiddlewareF
 type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
+}
+
+// InviteAdmin operation middleware
+func (sh *strictHandler) InviteAdmin(ctx echo.Context) error {
+	var request InviteAdminRequestObject
+
+	var body InviteAdminJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.InviteAdmin(ctx.Request().Context(), request.(InviteAdminRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "InviteAdmin")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(InviteAdminResponseObject); ok {
+		return validResponse.VisitInviteAdminResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
 }
 
 // VerifyEmail operation middleware
@@ -812,6 +1028,35 @@ func (sh *strictHandler) ResendEmailVerification(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(ResendEmailVerificationResponseObject); ok {
 		return validResponse.VisitResendEmailVerificationResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// AcceptInvitation operation middleware
+func (sh *strictHandler) AcceptInvitation(ctx echo.Context) error {
+	var request AcceptInvitationRequestObject
+
+	var body AcceptInvitationJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptInvitation(ctx.Request().Context(), request.(AcceptInvitationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptInvitation")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(AcceptInvitationResponseObject); ok {
+		return validResponse.VisitAcceptInvitationResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

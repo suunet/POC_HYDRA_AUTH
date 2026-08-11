@@ -94,7 +94,7 @@ func TestUC004_Resend_Unregistered_Returns200_Silent(t *testing.T) {
 
 // UC-004: A2 — mail_unverified 以外の全状態は200・メール送信なし（確認済み・無効化・削除等を包含）
 func TestUC004_Resend_NonUnverifiedStatus_Returns200_Silent(t *testing.T) {
-	for _, status := range []string{domain.StatusInactive, domain.StatusInvited, domain.StatusDisabled, domain.StatusDeleted} {
+	for _, status := range []string{domain.StatusInactive, domain.StatusDisabled, domain.StatusDeleted} {
 		t.Run(status, func(t *testing.T) {
 			d := newTestDeps()
 			seedResendUser(d, "done@example.com", status)

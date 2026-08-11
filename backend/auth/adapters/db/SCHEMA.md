@@ -10,6 +10,7 @@ erDiagram
     users ||--o{ email_confirmation_tokens : "issues"
     users ||--o{ password_reset_tokens : "issues"
     users ||--o{ refresh_tokens : "issues"
+    users |o..o{ invitation_tokens : "creates on accept"
 
     users {
         uuid user_uuid PK
@@ -30,6 +31,15 @@ erDiagram
         uuid user_uuid FK
         varchar token_hash
         timestamptz expires_at "VAR-06"
+        timestamptz used_at
+        timestamptz created_at
+    }
+    invitation_tokens {
+        uuid token_uuid PK
+        varchar email "VAR-01"
+        varchar role "VAR-09"
+        varchar token_hash
+        timestamptz expires_at "VAR-07"
         timestamptz used_at
         timestamptz created_at
     }
@@ -64,7 +74,7 @@ erDiagram
 | `user_uuid` | uuid | PK | ユーザーの主キー |
 | `email` | varchar(254) | NOT NULL | VAR-01（RFC5322準拠・最大254文字） |
 | `password_hash` | varchar(255) | NOT NULL | bcryptハッシュ（平文非保存） |
-| `status` | varchar(30) | NOT NULL・CHECK `users_status_check` | STM-01の英語ID（正本: `.docs/design/states.md`）: `mail_unverified` / `invited` / `inactive` / `disabled` / `deleted` |
+| `status` | varchar(30) | NOT NULL・CHECK `users_status_check` | STM-01の英語ID（正本: `.docs/design/states.md`）: `mail_unverified` / `inactive` / `disabled` / `deleted`（`invited` はSTM-01から除去済み＝招待済み未受付はINF-07で表す・CND-19。CHECK制約からの除去はmigration 0005） |
 | `created_at` | timestamptz | NOT NULL DEFAULT now() | |
 | `updated_at` | timestamptz | NOT NULL DEFAULT now() | |
 | `deleted_at` | timestamptz | NULL可 | 論理削除（GDPR対応カラムnull化は別途マイグレーションで対応。README未決事項参照） |
@@ -116,6 +126,24 @@ erDiagram
 **インデックス**
 
 - `password_reset_tokens_hash_unique`: `(token_hash)` UNIQUE
+
+## auth.invitation_tokens
+
+対応: INF-07（招待トークン）
+
+| 列 | 型 | 制約 | 説明 |
+|---|---|---|---|
+| `token_uuid` | uuid | PK | |
+| `email` | varchar(254) | NOT NULL | 招待対象（受付前はユーザー不在のためFKでなくメールアドレス紐付け・VAR-01） |
+| `role` | varchar(30) | NOT NULL | 付与ロール（VAR-09・FR-11=DBレコード紐付け） |
+| `token_hash` | varchar(255) | NOT NULL | SHA-256ハッシュ（平文は保存しない・NFR-15） |
+| `expires_at` | timestamptz | NOT NULL | VAR-07（有効期限24時間） |
+| `used_at` | timestamptz | NULL可 | 使用済みは使用時刻で表す（未使用はnull）。消費だけでなく再招待・受付完了時の一括無効化（CND-19）にも用いる |
+| `created_at` | timestamptz | NOT NULL DEFAULT now() | |
+
+**インデックス**
+
+- `invitation_tokens_hash_unique`: `(token_hash)` UNIQUE
 
 ## auth.refresh_tokens
 
