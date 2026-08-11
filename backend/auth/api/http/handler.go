@@ -273,28 +273,29 @@ func (h *Handler) ChangePassword(ctx context.Context, req ChangePasswordRequestO
 // オーバーライドはPOST/PUTのみ＝他メソッドの保護ルートを追加する場合は該当メソッドの追加実装が必要
 type protectedRouter struct {
 	*echo.Echo
-	protected map[string]echo.MiddlewareFunc
+	protected map[string][]echo.MiddlewareFunc
 }
 
 func (r protectedRouter) POST(path string, handler echo.HandlerFunc, middleware ...echo.MiddlewareFunc) *echo.Route {
-	if mw, ok := r.protected[path]; ok {
-		middleware = append(middleware, mw)
+	if mws, ok := r.protected[path]; ok {
+		middleware = append(middleware, mws...)
 	}
 	return r.Echo.POST(path, handler, middleware...)
 }
 
 func (r protectedRouter) PUT(path string, handler echo.HandlerFunc, middleware ...echo.MiddlewareFunc) *echo.Route {
-	if mw, ok := r.protected[path]; ok {
-		middleware = append(middleware, mw)
+	if mws, ok := r.protected[path]; ok {
+		middleware = append(middleware, mws...)
 	}
 	return r.Echo.PUT(path, handler, middleware...)
 }
 
 // Register は認証必須ルート（openapi security: bearerAuth）へ jwtAuth を適用して全ルートを登録する。
+// admin系ルートは jwtAuth の後段にロール認可（CND-17 OR評価）を連結する。
 func Register(e *echo.Echo, h *Handler, jwtAuth echo.MiddlewareFunc) {
-	router := protectedRouter{Echo: e, protected: map[string]echo.MiddlewareFunc{
-		"/auth/logout":   jwtAuth, // SCR-06（UC-007・CND-06）
-		"/auth/password": jwtAuth, // SCR-09（UC-010・CND-06）
+	router := protectedRouter{Echo: e, protected: map[string][]echo.MiddlewareFunc{
+		"/auth/logout":   {jwtAuth}, // SCR-06（UC-007・CND-06）
+		"/auth/password": {jwtAuth}, // SCR-09（UC-010・CND-06）
 	}}
 	RegisterHandlersWithBaseURL(router, NewStrictHandler(h, nil), "")
 }
