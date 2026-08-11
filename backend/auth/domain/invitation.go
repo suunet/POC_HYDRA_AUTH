@@ -14,6 +14,37 @@ import (
 // VAR-07: 招待トークン有効期限
 const InvitationTokenTTL = 24 * time.Hour
 
+// VAR-14: 同一メールアドレスへの招待リクエストは5分に1回
+const InvitationRateLimitWindow = 5 * time.Minute
+
+// VAR-09: 管理者ロール（招待で指定可能なロール）
+const (
+	RoleSuperAdmin  = "super_admin"
+	RoleOperator    = "operator"
+	RoleSystemAdmin = "system_admin"
+)
+
+var ErrInvalidAdminRole = errors.New("invalid admin role")
+
+// IsAdminRole は管理者ロール（VAR-09）かを判定する（CND-11のロール付与済み判定・UC-011 E4）。
+func IsAdminRole(role string) bool {
+	switch role {
+	case RoleSuperAdmin, RoleOperator, RoleSystemAdmin:
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateAdminRole は招待で指定するロールがVAR-09のいずれかであることを検証する（UC-011 E2。
+// `user` は自己登録のデフォルト付与＝招待対象外・BUC-A01備考）。
+func ValidateAdminRole(role string) error {
+	if !IsAdminRole(role) {
+		return ErrInvalidAdminRole
+	}
+	return nil
+}
+
 var (
 	ErrInvitationTokenNotFound = errors.New("invitation token not found")
 

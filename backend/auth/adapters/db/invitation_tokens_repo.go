@@ -12,6 +12,23 @@ import (
 	"poc-app-hydra/backend/common"
 )
 
+// FindUserRolesByEmail はメールアドレスでユーザー（削除済み除外・INF-01）とロール（INF-02）を検証読取する（UC-011 CND-11判定）。
+func (r *UserRepository) FindUserRolesByEmail(ctx context.Context, email string) ([]string, bool, error) {
+	q := dbmodels.New(r.db)
+	row, err := q.GetUserByEmail(ctx, email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	roles, err := q.GetUserRoles(ctx, row.UserUuid)
+	if err != nil {
+		return nil, false, err
+	}
+	return roles, true, nil
+}
+
 func (r *UserRepository) GetInvitationTokenByHash(ctx context.Context, hash string) (domain.InvitationTokenRecord, error) {
 	row, err := dbmodels.New(r.db).GetInvitationTokenByHash(ctx, hash)
 	if errors.Is(err, pgx.ErrNoRows) {

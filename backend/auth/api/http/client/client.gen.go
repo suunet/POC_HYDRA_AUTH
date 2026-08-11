@@ -20,6 +20,15 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
+// AdminInvitationRequest defines model for AdminInvitationRequest.
+type AdminInvitationRequest struct {
+	// Email VAR-01（RFC5322準拠・最大254文字）
+	Email openapi_types.Email `json:"email"`
+
+	// Role VAR-09（`super_admin`・`operator`・`system_admin` のいずれか。判定はUseCase層のE2）
+	Role string `json:"role"`
+}
+
 // ChangePasswordRequest defines model for ChangePasswordRequest.
 type ChangePasswordRequest struct {
 	// CurrentPassword 現在のパスワード（CND-16照合用。形式検証はしない＝照合失敗として403へ）
@@ -121,6 +130,9 @@ type RegisterAccountRequest struct {
 	Password string `json:"password"`
 }
 
+// InviteAdminJSONRequestBody defines body for InviteAdmin for application/json ContentType.
+type InviteAdminJSONRequestBody = AdminInvitationRequest
+
 // VerifyEmailJSONRequestBody defines body for VerifyEmail for application/json ContentType.
 type VerifyEmailJSONRequestBody = EmailVerifyRequest
 
@@ -221,6 +233,11 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// InviteAdminWithBody request with any body
+	InviteAdminWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	InviteAdmin(ctx context.Context, body InviteAdminJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// VerifyEmailWithBody request with any body
 	VerifyEmailWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -265,6 +282,30 @@ type ClientInterface interface {
 	RefreshTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	RefreshToken(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) InviteAdminWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInviteAdminRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) InviteAdmin(ctx context.Context, body InviteAdminJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInviteAdminRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) VerifyEmailWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -481,6 +522,46 @@ func (c *Client) RefreshToken(ctx context.Context, body RefreshTokenJSONRequestB
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewInviteAdminRequest calls the generic InviteAdmin builder with application/json body
+func NewInviteAdminRequest(server string, body InviteAdminJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewInviteAdminRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewInviteAdminRequestWithBody generates requests for InviteAdmin with any type of body
+func NewInviteAdminRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/admin/invitations")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewVerifyEmailRequest calls the generic VerifyEmail builder with application/json body
@@ -886,6 +967,11 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// InviteAdminWithBodyWithResponse request with any body
+	InviteAdminWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InviteAdminResponse, error)
+
+	InviteAdminWithResponse(ctx context.Context, body InviteAdminJSONRequestBody, reqEditors ...RequestEditorFn) (*InviteAdminResponse, error)
+
 	// VerifyEmailWithBodyWithResponse request with any body
 	VerifyEmailWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error)
 
@@ -930,6 +1016,33 @@ type ClientWithResponsesInterface interface {
 	RefreshTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error)
 
 	RefreshTokenWithResponse(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error)
+}
+
+type InviteAdminResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	ApplicationproblemJSON400 *Problem
+	ApplicationproblemJSON401 *Problem
+	ApplicationproblemJSON403 *Problem
+	ApplicationproblemJSON409 *Problem
+	ApplicationproblemJSON429 *Problem
+	ApplicationproblemJSON503 *Problem
+}
+
+// Status returns HTTPResponse.Status
+func (r InviteAdminResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r InviteAdminResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type VerifyEmailResponse struct {
@@ -1147,6 +1260,23 @@ func (r RefreshTokenResponse) StatusCode() int {
 	return 0
 }
 
+// InviteAdminWithBodyWithResponse request with arbitrary body returning *InviteAdminResponse
+func (c *ClientWithResponses) InviteAdminWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InviteAdminResponse, error) {
+	rsp, err := c.InviteAdminWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInviteAdminResponse(rsp)
+}
+
+func (c *ClientWithResponses) InviteAdminWithResponse(ctx context.Context, body InviteAdminJSONRequestBody, reqEditors ...RequestEditorFn) (*InviteAdminResponse, error) {
+	rsp, err := c.InviteAdmin(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInviteAdminResponse(rsp)
+}
+
 // VerifyEmailWithBodyWithResponse request with arbitrary body returning *VerifyEmailResponse
 func (c *ClientWithResponses) VerifyEmailWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error) {
 	rsp, err := c.VerifyEmailWithBody(ctx, contentType, body, reqEditors...)
@@ -1298,6 +1428,67 @@ func (c *ClientWithResponses) RefreshTokenWithResponse(ctx context.Context, body
 		return nil, err
 	}
 	return ParseRefreshTokenResponse(rsp)
+}
+
+// ParseInviteAdminResponse parses an HTTP response from a InviteAdminWithResponse call
+func ParseInviteAdminResponse(rsp *http.Response) (*InviteAdminResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &InviteAdminResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseVerifyEmailResponse parses an HTTP response from a VerifyEmailWithResponse call
