@@ -137,7 +137,6 @@ func TestUC008_RequestReset_UnregisteredOrIneligible_Returns200_Silent(t *testin
 	cases := map[string]func(*testDeps){
 		"未登録":                       func(*testDeps) {},
 		domain.StatusMailUnverified: func(d *testDeps) { seedResetRequestUser(d, "silent@example.com", domain.StatusMailUnverified) },
-		domain.StatusInvited:        func(d *testDeps) { seedResetRequestUser(d, "silent@example.com", domain.StatusInvited) },
 		domain.StatusDisabled:       func(d *testDeps) { seedResetRequestUser(d, "silent@example.com", domain.StatusDisabled) },
 		domain.StatusDeleted:        func(d *testDeps) { seedResetRequestUser(d, "silent@example.com", domain.StatusDeleted) },
 	}

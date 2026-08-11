@@ -27,7 +27,7 @@ func CheckLoginableStatus(status string) error {
 	case StatusDisabled:
 		return ErrAccountDisabled
 	default:
-		// mail_unverified・invited（未確認相当）は E5
+		// mail_unverified（未確認）は E5
 		return ErrEmailNotVerified
 	}
 }
