@@ -36,6 +36,7 @@ func newChangePasswordTestEcho(t *testing.T, repo *fakePasswordChangeRepository,
 		command.NewRequestPasswordResetHandler(&fakeResetRequestRepository{users: map[string]fakeResetUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
 		command.NewConfirmPasswordResetHandler(&fakeResetConfirmRepository{records: map[string]domain.PasswordResetTokenRecord{}}),
 		command.NewInviteAdminHandler(&fakeInviteRepository{users: map[string]fakeInviteUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
+		command.NewAcceptInvitationHandler(&fakeAcceptInvitationRepository{records: map[string]domain.InvitationTokenRecord{}, users: map[string][]string{}}),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
@@ -146,6 +147,7 @@ func TestUC010_ChangePasswordHTTP_MissingMiddlewareWiring_FailsClosed401(t *test
 		command.NewRequestPasswordResetHandler(&fakeResetRequestRepository{users: map[string]fakeResetUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
 		command.NewConfirmPasswordResetHandler(&fakeResetConfirmRepository{records: map[string]domain.PasswordResetTokenRecord{}}),
 		command.NewInviteAdminHandler(&fakeInviteRepository{users: map[string]fakeInviteUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
+		command.NewAcceptInvitationHandler(&fakeAcceptInvitationRepository{records: map[string]domain.InvitationTokenRecord{}, users: map[string][]string{}}),
 	), passthrough)
 
 	res := putPassword(t, e, "Bearer "+accessTokenFor(t, key, uuid.New()),

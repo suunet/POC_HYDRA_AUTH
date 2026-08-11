@@ -101,6 +101,7 @@ type testDeps struct {
 	resetRepo        *fakeResetRequestRepository
 	resetConfirmRepo *fakeResetConfirmRepository
 	inviteRepo       *fakeInviteRepository
+	acceptRepo       *fakeAcceptInvitationRepository
 	limiter          *fakeRateLimiter
 	mailer           *fakeMailer
 }
@@ -112,6 +113,7 @@ func newTestDeps() *testDeps {
 		resetRepo:        &fakeResetRequestRepository{users: map[string]fakeResetUser{}},
 		resetConfirmRepo: &fakeResetConfirmRepository{records: map[string]domain.PasswordResetTokenRecord{}},
 		inviteRepo:       &fakeInviteRepository{users: map[string]fakeInviteUser{}},
+		acceptRepo:       &fakeAcceptInvitationRepository{records: map[string]domain.InvitationTokenRecord{}, users: map[string][]string{}},
 		limiter:          &fakeRateLimiter{blocked: map[string]bool{}},
 		mailer:           &fakeMailer{},
 	}
@@ -138,6 +140,7 @@ func newAuthTestEchoKeyed(t *testing.T, d *testDeps, key *rsa.PrivateKey) http.H
 		command.NewRequestPasswordResetHandler(d.resetRepo, d.limiter, d.mailer),
 		command.NewConfirmPasswordResetHandler(d.resetConfirmRepo),
 		command.NewInviteAdminHandler(d.inviteRepo, d.limiter, d.mailer),
+		command.NewAcceptInvitationHandler(d.acceptRepo),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
