@@ -38,7 +38,7 @@ func (h *RequestPasswordResetHandler) Handle(ctx context.Context, email string) 
 		return fmt.Errorf("could not check rate limit: %w", err)
 	}
 	if !res.Allowed {
-		logger.WarnContext(ctx, "パスワードリセット送信レートリミット超過")
+		logger.WarnContext(ctx, "パスワードリセット要求レートリミット超過")
 		return &RateLimitedError{RetryAfter: res.RetryAfter}
 	}
 
