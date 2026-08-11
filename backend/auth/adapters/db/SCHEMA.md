@@ -64,7 +64,7 @@ erDiagram
 | `user_uuid` | uuid | PK | ユーザーの主キー |
 | `email` | varchar(254) | NOT NULL | VAR-01（RFC5322準拠・最大254文字） |
 | `password_hash` | varchar(255) | NOT NULL | bcryptハッシュ（平文非保存） |
-| `status` | varchar(30) | NOT NULL・CHECK `users_status_check` | STM-01の英語ID（正本: `.docs/design/states.md`）: `mail_unverified` / `invited` / `inactive` / `disabled` / `deleted` |
+| `status` | varchar(30) | NOT NULL・CHECK `users_status_check` | STM-01の英語ID（正本: `.docs/design/states.md`）: `mail_unverified` / `inactive` / `disabled` / `deleted`（`invited` はSTM-01から除去済み＝招待済み未受付はINF-07で表す・CND-19。CHECK制約からの除去はmigration 0005） |
 | `created_at` | timestamptz | NOT NULL DEFAULT now() | |
 | `updated_at` | timestamptz | NOT NULL DEFAULT now() | |
 | `deleted_at` | timestamptz | NULL可 | 論理削除（GDPR対応カラムnull化は別途マイグレーションで対応。README未決事項参照） |
