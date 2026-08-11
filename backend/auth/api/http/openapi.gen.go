@@ -48,6 +48,15 @@ type EmailVerifyResendRequest struct {
 	Email openapi_types.Email `json:"email"`
 }
 
+// InvitationAcceptRequest defines model for InvitationAcceptRequest.
+type InvitationAcceptRequest struct {
+	// Password VAR-02（最小15・最大64文字・Unicode許容・UTF-8で72バイト以下）
+	Password string `json:"password"`
+
+	// Token 招待トークン（平文。INF-07はSHA-256ハッシュのみ保存し照合する）
+	Token string `json:"token"`
+}
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	// Email VAR-01（RFC5322準拠・最大254文字）
@@ -137,6 +146,9 @@ type VerifyEmailJSONRequestBody = EmailVerifyRequest
 // ResendEmailVerificationJSONRequestBody defines body for ResendEmailVerification for application/json ContentType.
 type ResendEmailVerificationJSONRequestBody = EmailVerifyResendRequest
 
+// AcceptInvitationJSONRequestBody defines body for AcceptInvitation for application/json ContentType.
+type AcceptInvitationJSONRequestBody = InvitationAcceptRequest
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -169,6 +181,9 @@ type ServerInterface interface {
 	// メール確認トークンを再送する
 	// (POST /auth/email-verify/resend)
 	ResendEmailVerification(ctx echo.Context) error
+	// 招待を受け付ける
+	// (POST /auth/invitation/accept)
+	AcceptInvitation(ctx echo.Context) error
 	// ログインする
 	// (POST /auth/login)
 	Login(ctx echo.Context) error
@@ -223,6 +238,15 @@ func (w *ServerInterfaceWrapper) ResendEmailVerification(ctx echo.Context) error
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.ResendEmailVerification(ctx)
+	return err
+}
+
+// AcceptInvitation converts echo context to params.
+func (w *ServerInterfaceWrapper) AcceptInvitation(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.AcceptInvitation(ctx)
 	return err
 }
 
@@ -324,6 +348,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.POST(baseURL+"/admin/invitations", wrapper.InviteAdmin)
 	router.POST(baseURL+"/auth/email-verify", wrapper.VerifyEmail)
 	router.POST(baseURL+"/auth/email-verify/resend", wrapper.ResendEmailVerification)
+	router.POST(baseURL+"/auth/invitation/accept", wrapper.AcceptInvitation)
 	router.POST(baseURL+"/auth/login", wrapper.Login)
 	router.POST(baseURL+"/auth/logout", wrapper.Logout)
 	router.PUT(baseURL+"/auth/password", wrapper.ChangePassword)
@@ -500,6 +525,49 @@ type ResendEmailVerification503ApplicationProblemPlusJSONResponse Problem
 func (response ResendEmailVerification503ApplicationProblemPlusJSONResponse) VisitResendEmailVerificationResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AcceptInvitationRequestObject struct {
+	Body *AcceptInvitationJSONRequestBody
+}
+
+type AcceptInvitationResponseObject interface {
+	VisitAcceptInvitationResponse(w http.ResponseWriter) error
+}
+
+type AcceptInvitation200Response struct {
+}
+
+func (response AcceptInvitation200Response) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type AcceptInvitation400ApplicationProblemPlusJSONResponse Problem
+
+func (response AcceptInvitation400ApplicationProblemPlusJSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AcceptInvitation409ApplicationProblemPlusJSONResponse Problem
+
+func (response AcceptInvitation409ApplicationProblemPlusJSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AcceptInvitation500ApplicationProblemPlusJSONResponse Problem
+
+func (response AcceptInvitation500ApplicationProblemPlusJSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -841,6 +909,9 @@ type StrictServerInterface interface {
 	// メール確認トークンを再送する
 	// (POST /auth/email-verify/resend)
 	ResendEmailVerification(ctx context.Context, request ResendEmailVerificationRequestObject) (ResendEmailVerificationResponseObject, error)
+	// 招待を受け付ける
+	// (POST /auth/invitation/accept)
+	AcceptInvitation(ctx context.Context, request AcceptInvitationRequestObject) (AcceptInvitationResponseObject, error)
 	// ログインする
 	// (POST /auth/login)
 	Login(ctx context.Context, request LoginRequestObject) (LoginResponseObject, error)
@@ -957,6 +1028,35 @@ func (sh *strictHandler) ResendEmailVerification(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(ResendEmailVerificationResponseObject); ok {
 		return validResponse.VisitResendEmailVerificationResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// AcceptInvitation operation middleware
+func (sh *strictHandler) AcceptInvitation(ctx echo.Context) error {
+	var request AcceptInvitationRequestObject
+
+	var body AcceptInvitationJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptInvitation(ctx.Request().Context(), request.(AcceptInvitationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptInvitation")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(AcceptInvitationResponseObject); ok {
+		return validResponse.VisitAcceptInvitationResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

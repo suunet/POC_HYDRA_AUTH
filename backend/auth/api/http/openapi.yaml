@@ -521,6 +521,51 @@ paths:
                 type: https://example.com/probs/mail-delivery-error
                 title: Service Unavailable
                 status: 503
+  /auth/invitation/accept:
+    post:
+      summary: 招待を受け付ける
+      operationId: acceptInvitation
+      tags:
+        - commands
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationAcceptRequest'
+      responses:
+        '200':
+          description: 管理者アカウント作成完了（UC-012・FR-13。単一Txでユーザー作成〔未認証〕＋紐付けロール付与＋トークン消費＋他有効トークン一括無効化〔CND-19〕。認証は行わずUC-005でログイン）
+        '400':
+          description: 強度不足（E1=validation-error・VAR-02）／トークン不存在・使用済み（E2/E3=invalid-token・応答同一で状態を区別しない）／期限切れ（E4=token-expired・CND-12・状態更新なしno-op）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/invalid-token
+                title: Bad Request
+                status: 400
+        '409':
+          description: 既存アカウント実在（E6=email-already-registered・招待発行〜受付間の自己登録レース対策・トークン非消費・500にしない）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/email-already-registered
+                title: Conflict
+                status: 409
+        '500':
+          description: トランザクション失敗（E5=internal-error・ユーザー作成/ロール付与/トークン状態とも全ロールバック済み）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/internal-error
+                title: Internal Server Error
+                status: 500
 components:
   securitySchemes:
     bearerAuth:
@@ -631,6 +676,21 @@ components:
           format: email
           maxLength: 254
           description: VAR-01（RFC5322準拠・最大254文字）
+    InvitationAcceptRequest:
+      type: object
+      required:
+        - token
+        - password
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: 招待トークン（平文。INF-07はSHA-256ハッシュのみ保存し照合する）
+        password:
+          type: string
+          minLength: 15
+          maxLength: 64
+          description: VAR-02（最小15・最大64文字・Unicode許容・UTF-8で72バイト以下）
     AdminInvitationRequest:
       type: object
       required:

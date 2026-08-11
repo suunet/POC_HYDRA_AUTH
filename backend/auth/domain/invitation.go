@@ -78,6 +78,12 @@ func NewInvitationToken() (plain string, token InvitationToken, err error) {
 	return plain, token, nil
 }
 
+// HashInvitationToken は提示された平文トークンをDB照合用のSHA-256 hexへ変換する。
+func HashInvitationToken(plain string) string {
+	sum := sha256.Sum256([]byte(plain))
+	return hex.EncodeToString(sum[:])
+}
+
 // InvitationTokenRecord は保存済み招待トークンの照合用ビュー（INF-07）。
 type InvitationTokenRecord struct {
 	TokenUUID uuid.UUID

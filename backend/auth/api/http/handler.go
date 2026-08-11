@@ -24,10 +24,11 @@ type Handler struct {
 	requestReset   *command.RequestPasswordResetHandler
 	confirmReset   *command.ConfirmPasswordResetHandler
 	inviteAdmin    *command.InviteAdminHandler
+	acceptInvite   *command.AcceptInvitationHandler
 }
 
-func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler, changePassword *command.ChangePasswordHandler, requestReset *command.RequestPasswordResetHandler, confirmReset *command.ConfirmPasswordResetHandler, inviteAdmin *command.InviteAdminHandler) *Handler {
-	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout, changePassword: changePassword, requestReset: requestReset, confirmReset: confirmReset, inviteAdmin: inviteAdmin}
+func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler, changePassword *command.ChangePasswordHandler, requestReset *command.RequestPasswordResetHandler, confirmReset *command.ConfirmPasswordResetHandler, inviteAdmin *command.InviteAdminHandler, acceptInvite *command.AcceptInvitationHandler) *Handler {
+	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout, changePassword: changePassword, requestReset: requestReset, confirmReset: confirmReset, inviteAdmin: inviteAdmin, acceptInvite: acceptInvite}
 }
 
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
@@ -121,6 +122,33 @@ func (h *Handler) RequestPasswordReset(ctx context.Context, req RequestPasswordR
 		return nil, commonhttp.NewProblemError(http.StatusServiceUnavailable, "mail-delivery-error", "リセットメールの送信に失敗しました")
 	default:
 		return nil, err
+	}
+}
+
+func (h *Handler) AcceptInvitation(ctx context.Context, req AcceptInvitationRequestObject) (AcceptInvitationResponseObject, error) {
+	if req.Body == nil {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "リクエストボディが必要です")
+	}
+	// NOTE: openapiのminLength:1をバインダは検証しないため必須検査をここで行う（VerifyEmailと同型）
+	if req.Body.Token == "" {
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "トークンが必要です")
+	}
+
+	err := h.acceptInvite.Handle(ctx, req.Body.Token, req.Body.Password)
+	switch {
+	case err == nil:
+		return AcceptInvitation200Response{}, nil
+	case errors.Is(err, domain.ErrInvalidPassword):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "validation-error", "パスワードは15〜64文字で指定してください")
+	case errors.Is(err, command.ErrInvalidInvitationToken):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "invalid-token", "無効な招待トークン")
+	case errors.Is(err, command.ErrInvitationTokenExpired):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "token-expired", "招待トークンの有効期限が切れています")
+	case errors.Is(err, domain.ErrEmailAlreadyRegistered):
+		return nil, commonhttp.NewProblemError(http.StatusConflict, "email-already-registered", "このメールアドレスのアカウントは既に存在します")
+	default:
+		// E5ほか未分類の内部失敗はUC-012指定のinternal-error（Tx失敗はUseCaseが全ロールバック・ERROR記録済み）
+		return nil, commonhttp.NewProblemError(http.StatusInternalServerError, "internal-error", "サーバ内部エラーが発生しました")
 	}
 }
 
