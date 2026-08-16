@@ -12,6 +12,24 @@ import (
 	"github.com/google/uuid"
 )
 
+const countActiveSuperAdmins = `-- name: CountActiveSuperAdmins :one
+SELECT count(*)
+FROM auth.users u
+JOIN auth.user_roles ur ON ur.user_uuid = u.user_uuid
+WHERE ur.role = 'super_admin'
+  AND u.status = 'inactive'
+  AND u.deleted_at IS NULL
+`
+
+// NOTE: CND-14: 稼働中（status='inactive'・削除除外）の super_admin 数。無効化済み/削除済みは含めない
+// （含めると最後の稼働中1人を無効化でき保護が破れる）。UC-014のE4判定に用いる
+func (q *Queries) CountActiveSuperAdmins(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveSuperAdmins)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT
 	user_uuid,

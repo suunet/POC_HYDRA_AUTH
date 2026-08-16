@@ -63,3 +63,13 @@ SET password_hash = $2,
     updated_at = now()
 WHERE user_uuid = $1
   AND deleted_at IS NULL;
+
+-- name: CountActiveSuperAdmins :one
+-- NOTE: CND-14: 稼働中（status='inactive'・削除除外）の super_admin 数。無効化済み/削除済みは含めない
+-- （含めると最後の稼働中1人を無効化でき保護が破れる）。UC-014のE4判定に用いる
+SELECT count(*)
+FROM auth.users u
+JOIN auth.user_roles ur ON ur.user_uuid = u.user_uuid
+WHERE ur.role = 'super_admin'
+  AND u.status = 'inactive'
+  AND u.deleted_at IS NULL;
