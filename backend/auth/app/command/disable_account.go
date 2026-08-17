@@ -56,6 +56,8 @@ func (h *DisableAccountHandler) Handle(ctx context.Context, operatorSub, targetI
 
 	roles, status, found, err := h.repo.FindAccountForDisable(ctx, targetUUID)
 	if err != nil {
+		// 外部依存失敗はERROR（NFR-08）。Tx失敗と同じ観測性でinternal-error500へ倒す
+		logger.ErrorContext(ctx, "アカウント無効化の対象読取に失敗")
 		return fmt.Errorf("could not look up account: %w", err)
 	}
 	if !found {
