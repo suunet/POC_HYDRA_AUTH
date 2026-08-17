@@ -182,6 +182,9 @@ type ServerInterface interface {
 	// 管理者アカウントを無効化する
 	// (POST /admin/accounts/{userId}/disable)
 	DisableAdminAccount(ctx echo.Context, userId string) error
+	// 管理者アカウントを再有効化する
+	// (POST /admin/accounts/{userId}/reactivate)
+	ReactivateAdminAccount(ctx echo.Context, userId string) error
 	// 管理者を招待する
 	// (POST /admin/invitations)
 	InviteAdmin(ctx echo.Context) error
@@ -237,6 +240,24 @@ func (w *ServerInterfaceWrapper) DisableAdminAccount(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.DisableAdminAccount(ctx, userId)
+	return err
+}
+
+// ReactivateAdminAccount converts echo context to params.
+func (w *ServerInterfaceWrapper) ReactivateAdminAccount(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", ctx.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter userId: %s", err))
+	}
+
+	ctx.Set(BearerAuthScopes, []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ReactivateAdminAccount(ctx, userId)
 	return err
 }
 
@@ -374,6 +395,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	}
 
 	router.POST(baseURL+"/admin/accounts/:userId/disable", wrapper.DisableAdminAccount)
+	router.POST(baseURL+"/admin/accounts/:userId/reactivate", wrapper.ReactivateAdminAccount)
 	router.POST(baseURL+"/admin/invitations", wrapper.InviteAdmin)
 	router.POST(baseURL+"/auth/email-verify", wrapper.VerifyEmail)
 	router.POST(baseURL+"/auth/email-verify/resend", wrapper.ResendEmailVerification)
@@ -461,6 +483,84 @@ func (response DisableAdminAccount409ApplicationProblemPlusJSONResponse) VisitDi
 type DisableAdminAccount500ApplicationProblemPlusJSONResponse Problem
 
 func (response DisableAdminAccount500ApplicationProblemPlusJSONResponse) VisitDisableAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReactivateAdminAccountRequestObject struct {
+	UserId string `json:"userId"`
+}
+
+type ReactivateAdminAccountResponseObject interface {
+	VisitReactivateAdminAccountResponse(w http.ResponseWriter) error
+}
+
+type ReactivateAdminAccount200Response struct {
+}
+
+func (response ReactivateAdminAccount200Response) VisitReactivateAdminAccountResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type ReactivateAdminAccount400ApplicationProblemPlusJSONResponse Problem
+
+func (response ReactivateAdminAccount400ApplicationProblemPlusJSONResponse) VisitReactivateAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReactivateAdminAccount401ResponseHeaders struct {
+	WWWAuthenticate string
+}
+
+type ReactivateAdminAccount401ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers ReactivateAdminAccount401ResponseHeaders
+}
+
+func (response ReactivateAdminAccount401ApplicationProblemPlusJSONResponse) VisitReactivateAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ReactivateAdminAccount403ApplicationProblemPlusJSONResponse Problem
+
+func (response ReactivateAdminAccount403ApplicationProblemPlusJSONResponse) VisitReactivateAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReactivateAdminAccount404ApplicationProblemPlusJSONResponse Problem
+
+func (response ReactivateAdminAccount404ApplicationProblemPlusJSONResponse) VisitReactivateAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReactivateAdminAccount409ApplicationProblemPlusJSONResponse Problem
+
+func (response ReactivateAdminAccount409ApplicationProblemPlusJSONResponse) VisitReactivateAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ReactivateAdminAccount500ApplicationProblemPlusJSONResponse Problem
+
+func (response ReactivateAdminAccount500ApplicationProblemPlusJSONResponse) VisitReactivateAdminAccountResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(500)
 
@@ -1011,6 +1111,9 @@ type StrictServerInterface interface {
 	// 管理者アカウントを無効化する
 	// (POST /admin/accounts/{userId}/disable)
 	DisableAdminAccount(ctx context.Context, request DisableAdminAccountRequestObject) (DisableAdminAccountResponseObject, error)
+	// 管理者アカウントを再有効化する
+	// (POST /admin/accounts/{userId}/reactivate)
+	ReactivateAdminAccount(ctx context.Context, request ReactivateAdminAccountRequestObject) (ReactivateAdminAccountResponseObject, error)
 	// 管理者を招待する
 	// (POST /admin/invitations)
 	InviteAdmin(ctx context.Context, request InviteAdminRequestObject) (InviteAdminResponseObject, error)
@@ -1077,6 +1180,31 @@ func (sh *strictHandler) DisableAdminAccount(ctx echo.Context, userId string) er
 		return err
 	} else if validResponse, ok := response.(DisableAdminAccountResponseObject); ok {
 		return validResponse.VisitDisableAdminAccountResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ReactivateAdminAccount operation middleware
+func (sh *strictHandler) ReactivateAdminAccount(ctx echo.Context, userId string) error {
+	var request ReactivateAdminAccountRequestObject
+
+	request.UserId = userId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ReactivateAdminAccount(ctx.Request().Context(), request.(ReactivateAdminAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReactivateAdminAccount")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ReactivateAdminAccountResponseObject); ok {
+		return validResponse.VisitReactivateAdminAccountResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

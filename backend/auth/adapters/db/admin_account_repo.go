@@ -19,9 +19,8 @@ func (r *UserRepository) CountActiveSuperAdmins(ctx context.Context) (int64, err
 	return dbmodels.New(r.db).CountActiveSuperAdmins(ctx)
 }
 
-// FindAccountForDisable は user_uuid で対象（削除済み除外）のロールと状態を検証読取する（UC-014 E1〜E3）。
-// 未存在は found=false（E1へ倒す・列挙防止）。
-func (r *UserRepository) FindAccountForDisable(ctx context.Context, userUUID uuid.UUID) ([]string, string, bool, error) {
+// findAdminAccount は user_uuid で対象（削除済み除外）のロールと状態を検証読取する。未存在は found=false（列挙防止）。
+func (r *UserRepository) findAdminAccount(ctx context.Context, userUUID uuid.UUID) ([]string, string, bool, error) {
 	q := dbmodels.New(r.db)
 	row, err := q.GetUserByUuid(ctx, userUUID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -35,6 +34,33 @@ func (r *UserRepository) FindAccountForDisable(ctx context.Context, userUUID uui
 		return nil, "", false, err
 	}
 	return roles, row.Status, true, nil
+}
+
+// FindAccountForDisable は無効化対象を検証読取する（UC-014 E1〜E3）。未存在は found=false（E1へ倒す）。
+func (r *UserRepository) FindAccountForDisable(ctx context.Context, userUUID uuid.UUID) ([]string, string, bool, error) {
+	return r.findAdminAccount(ctx, userUUID)
+}
+
+// FindAccountForReactivate は再有効化対象を検証読取する（UC-015 E1〜E3）。未存在は found=false（E1へ倒す）。
+func (r *UserRepository) FindAccountForReactivate(ctx context.Context, userUUID uuid.UUID) ([]string, string, bool, error) {
+	return r.findAdminAccount(ctx, userUUID)
+}
+
+// ReactivateAccount は再有効化（disabled→inactive）を遷移元ガード付き単一文で行う（UC-015・FR-16）。
+// NOTE: 遷移0行（無効化済みでない・並行再有効化）は ErrNotDisabled を返す（E3へ合流・二重再有効化の競合を閉じる）
+func (r *UserRepository) ReactivateAccount(ctx context.Context, userUUID uuid.UUID) error {
+	affected, err := dbmodels.New(r.db).TransitionUserStatus(ctx, dbmodels.TransitionUserStatusParams{
+		UserUuid: userUUID,
+		Status:   domain.StatusInactive,
+		Status_2: domain.StatusDisabled,
+	})
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return command.ErrNotDisabled
+	}
+	return nil
 }
 
 // DisableAccount は無効化（inactive→disabled）と全RT失効を単一Txで行う（UC-014・FR-15）。

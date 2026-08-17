@@ -14,22 +14,23 @@ import (
 )
 
 type Handler struct {
-	register       *command.RegisterAccountHandler
-	verify         *command.VerifyEmailHandler
-	resend         *command.ResendEmailVerificationHandler
-	login          *command.LoginHandler
-	refresh        *command.RefreshTokenHandler
-	logout         *command.LogoutHandler
-	changePassword *command.ChangePasswordHandler
-	requestReset   *command.RequestPasswordResetHandler
-	confirmReset   *command.ConfirmPasswordResetHandler
-	inviteAdmin    *command.InviteAdminHandler
-	acceptInvite   *command.AcceptInvitationHandler
-	disableAccount *command.DisableAccountHandler
+	register          *command.RegisterAccountHandler
+	verify            *command.VerifyEmailHandler
+	resend            *command.ResendEmailVerificationHandler
+	login             *command.LoginHandler
+	refresh           *command.RefreshTokenHandler
+	logout            *command.LogoutHandler
+	changePassword    *command.ChangePasswordHandler
+	requestReset      *command.RequestPasswordResetHandler
+	confirmReset      *command.ConfirmPasswordResetHandler
+	inviteAdmin       *command.InviteAdminHandler
+	acceptInvite      *command.AcceptInvitationHandler
+	disableAccount    *command.DisableAccountHandler
+	reactivateAccount *command.ReactivateAccountHandler
 }
 
-func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler, changePassword *command.ChangePasswordHandler, requestReset *command.RequestPasswordResetHandler, confirmReset *command.ConfirmPasswordResetHandler, inviteAdmin *command.InviteAdminHandler, acceptInvite *command.AcceptInvitationHandler, disableAccount *command.DisableAccountHandler) *Handler {
-	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout, changePassword: changePassword, requestReset: requestReset, confirmReset: confirmReset, inviteAdmin: inviteAdmin, acceptInvite: acceptInvite, disableAccount: disableAccount}
+func NewHandler(register *command.RegisterAccountHandler, verify *command.VerifyEmailHandler, resend *command.ResendEmailVerificationHandler, login *command.LoginHandler, refresh *command.RefreshTokenHandler, logout *command.LogoutHandler, changePassword *command.ChangePasswordHandler, requestReset *command.RequestPasswordResetHandler, confirmReset *command.ConfirmPasswordResetHandler, inviteAdmin *command.InviteAdminHandler, acceptInvite *command.AcceptInvitationHandler, disableAccount *command.DisableAccountHandler, reactivateAccount *command.ReactivateAccountHandler) *Handler {
+	return &Handler{register: register, verify: verify, resend: resend, login: login, refresh: refresh, logout: logout, changePassword: changePassword, requestReset: requestReset, confirmReset: confirmReset, inviteAdmin: inviteAdmin, acceptInvite: acceptInvite, disableAccount: disableAccount, reactivateAccount: reactivateAccount}
 }
 
 func (h *Handler) RegisterAccount(ctx context.Context, req RegisterAccountRequestObject) (RegisterAccountResponseObject, error) {
@@ -182,7 +183,7 @@ func (h *Handler) InviteAdmin(ctx context.Context, req InviteAdminRequestObject)
 }
 
 func (h *Handler) DisableAdminAccount(ctx context.Context, req DisableAdminAccountRequestObject) (DisableAdminAccountResponseObject, error) {
-	// CND-06相当: M1/M2はミドルウェア（FR-19＋RequireRoles）が担うが、配線欠落時はfail-closedで401一様
+	// M1/M2はミドルウェア（FR-19＋RequireRoles）が担うが、配線欠落時はfail-closedで401一様
 	// （ヘッダなし＝到達はRegister配線のバグ）。操作者sub（監査のoperator）もここで取り出す
 	claims, ok := commonhttp.AuthClaimsFromContext(ctx)
 	if !ok {
@@ -205,6 +206,30 @@ func (h *Handler) DisableAdminAccount(ctx context.Context, req DisableAdminAccou
 		return nil, commonhttp.NewProblemError(http.StatusConflict, "last-super-admin", "最後のsuper_adminは無効化できません")
 	default:
 		// E5ほか未分類の内部失敗（Tx失敗はUseCaseが全ロールバック・ERROR記録済み）
+		return nil, commonhttp.NewProblemError(http.StatusInternalServerError, "internal-error", "サーバ内部エラーが発生しました")
+	}
+}
+
+func (h *Handler) ReactivateAdminAccount(ctx context.Context, req ReactivateAdminAccountRequestObject) (ReactivateAdminAccountResponseObject, error) {
+	// M1/M2はミドルウェア（FR-19＋RequireRoles）が担うが配線欠落時はfail-closedで401一様。操作者sub（監査のoperator）も取り出す
+	claims, ok := commonhttp.AuthClaimsFromContext(ctx)
+	if !ok {
+		return nil, commonhttp.NewProblemError(http.StatusUnauthorized, "invalid-token", "アクセストークンが無効です")
+	}
+
+	err := h.reactivateAccount.Handle(ctx, claims.UserID, req.UserId)
+	switch {
+	case err == nil:
+		return ReactivateAdminAccount200Response{}, nil
+	case errors.Is(err, command.ErrUserNotFound):
+		// E1: UUID形式不正も合流（存在有無の情報漏洩回避）
+		return nil, commonhttp.NewProblemError(http.StatusNotFound, "user-not-found", "対象ユーザーが存在しません")
+	case errors.Is(err, command.ErrNotAdminAccount):
+		return nil, commonhttp.NewProblemError(http.StatusBadRequest, "not-admin-account", "対象は管理者アカウントではありません")
+	case errors.Is(err, command.ErrNotDisabled):
+		return nil, commonhttp.NewProblemError(http.StatusConflict, "account-not-disabled", "対象は無効化されていません")
+	default:
+		// 未分類の内部失敗（DB障害等・ERROR記録済み）。無効化API（SCR-13）と対称の500フォールバック
 		return nil, commonhttp.NewProblemError(http.StatusInternalServerError, "internal-error", "サーバ内部エラーが発生しました")
 	}
 }
@@ -386,6 +411,8 @@ func Register(e *echo.Echo, h *Handler, jwtAuth echo.MiddlewareFunc) {
 		"/admin/invitations": {jwtAuth, commonhttp.RequireRoles("admin_invitation", domain.RoleSuperAdmin)},
 		// SCR-13（UC-014・CND-17）: super_admin限定（M2・403）。キーはecho登録パス（:userId）
 		"/admin/accounts/:userId/disable": {jwtAuth, commonhttp.RequireRoles("account_disable", domain.RoleSuperAdmin)},
+		// SCR-14（UC-015・CND-17）: super_admin限定（M2・403）。無効化APIと対称
+		"/admin/accounts/:userId/reactivate": {jwtAuth, commonhttp.RequireRoles("account_reactivate", domain.RoleSuperAdmin)},
 	}}
 	RegisterHandlersWithBaseURL(router, NewStrictHandler(h, nil), "")
 }
