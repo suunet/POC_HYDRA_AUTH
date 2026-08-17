@@ -178,6 +178,41 @@ func (q *Queries) InsertUserRole(ctx context.Context, arg InsertUserRoleParams) 
 	return err
 }
 
+const lockActiveSuperAdmins = `-- name: LockActiveSuperAdmins :many
+SELECT u.user_uuid
+FROM auth.users u
+JOIN auth.user_roles ur ON ur.user_uuid = u.user_uuid
+WHERE ur.role = 'super_admin'
+  AND u.status = 'inactive'
+  AND u.deleted_at IS NULL
+ORDER BY u.user_uuid
+FOR UPDATE OF u
+`
+
+// NOTE: CND-14 TOCTOU: 稼働中super_admin行をFOR UPDATEでロックし無効化Tx内で件数評価する（最後の1人保護・UC-014 E4）。
+// Tx分離はRepeatableRead（common.UpdateInTx）。並行無効化が先にコミット済みだと本FOR UPDATEは直列化失敗
+// （40001）となり、UpdateInTxのリトライが新スナップショットで再評価する＝相手の無効化後の件数で判定される。
+// ORDER BYはロック取得順を全Txで一意にしデッドロックを防ぐ（異なる2人の並行無効化が逆順ロックで詰まらない）
+func (q *Queries) LockActiveSuperAdmins(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockActiveSuperAdmins)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var user_uuid uuid.UUID
+		if err := rows.Scan(&user_uuid); err != nil {
+			return nil, err
+		}
+		items = append(items, user_uuid)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const transitionUserStatus = `-- name: TransitionUserStatus :execrows
 UPDATE auth.users
 SET status = $2,

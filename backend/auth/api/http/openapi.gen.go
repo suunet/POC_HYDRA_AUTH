@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/oapi-codegen/runtime"
 	strictecho "github.com/oapi-codegen/runtime/strictmiddleware/echo"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
@@ -17,6 +18,12 @@ import (
 const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
+
+// AccountDisableResult defines model for AccountDisableResult.
+type AccountDisableResult struct {
+	// RevocationReason 常に account_disabled（VAR-10・FR-15・UC-014。失効した全RTの失効理由）
+	RevocationReason string `json:"revocation_reason"`
+}
 
 // AdminInvitationRequest defines model for AdminInvitationRequest.
 type AdminInvitationRequest struct {
@@ -172,6 +179,9 @@ type RefreshTokenJSONRequestBody = RefreshTokenRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// 管理者アカウントを無効化する
+	// (POST /admin/accounts/{userId}/disable)
+	DisableAdminAccount(ctx echo.Context, userId string) error
 	// 管理者を招待する
 	// (POST /admin/invitations)
 	InviteAdmin(ctx echo.Context) error
@@ -210,6 +220,24 @@ type ServerInterface interface {
 // ServerInterfaceWrapper converts echo contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler ServerInterface
+}
+
+// DisableAdminAccount converts echo context to params.
+func (w *ServerInterfaceWrapper) DisableAdminAccount(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", ctx.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter userId: %s", err))
+	}
+
+	ctx.Set(BearerAuthScopes, []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.DisableAdminAccount(ctx, userId)
+	return err
 }
 
 // InviteAdmin converts echo context to params.
@@ -345,6 +373,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 		Handler: si,
 	}
 
+	router.POST(baseURL+"/admin/accounts/:userId/disable", wrapper.DisableAdminAccount)
 	router.POST(baseURL+"/admin/invitations", wrapper.InviteAdmin)
 	router.POST(baseURL+"/auth/email-verify", wrapper.VerifyEmail)
 	router.POST(baseURL+"/auth/email-verify/resend", wrapper.ResendEmailVerification)
@@ -357,6 +386,85 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.POST(baseURL+"/auth/register", wrapper.RegisterAccount)
 	router.POST(baseURL+"/auth/token/refresh", wrapper.RefreshToken)
 
+}
+
+type DisableAdminAccountRequestObject struct {
+	UserId string `json:"userId"`
+}
+
+type DisableAdminAccountResponseObject interface {
+	VisitDisableAdminAccountResponse(w http.ResponseWriter) error
+}
+
+type DisableAdminAccount200JSONResponse AccountDisableResult
+
+func (response DisableAdminAccount200JSONResponse) VisitDisableAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DisableAdminAccount400ApplicationProblemPlusJSONResponse Problem
+
+func (response DisableAdminAccount400ApplicationProblemPlusJSONResponse) VisitDisableAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DisableAdminAccount401ResponseHeaders struct {
+	WWWAuthenticate string
+}
+
+type DisableAdminAccount401ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers DisableAdminAccount401ResponseHeaders
+}
+
+func (response DisableAdminAccount401ApplicationProblemPlusJSONResponse) VisitDisableAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type DisableAdminAccount403ApplicationProblemPlusJSONResponse Problem
+
+func (response DisableAdminAccount403ApplicationProblemPlusJSONResponse) VisitDisableAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DisableAdminAccount404ApplicationProblemPlusJSONResponse Problem
+
+func (response DisableAdminAccount404ApplicationProblemPlusJSONResponse) VisitDisableAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DisableAdminAccount409ApplicationProblemPlusJSONResponse Problem
+
+func (response DisableAdminAccount409ApplicationProblemPlusJSONResponse) VisitDisableAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DisableAdminAccount500ApplicationProblemPlusJSONResponse Problem
+
+func (response DisableAdminAccount500ApplicationProblemPlusJSONResponse) VisitDisableAdminAccountResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type InviteAdminRequestObject struct {
@@ -900,6 +1008,9 @@ func (response RefreshToken401ApplicationProblemPlusJSONResponse) VisitRefreshTo
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// 管理者アカウントを無効化する
+	// (POST /admin/accounts/{userId}/disable)
+	DisableAdminAccount(ctx context.Context, request DisableAdminAccountRequestObject) (DisableAdminAccountResponseObject, error)
 	// 管理者を招待する
 	// (POST /admin/invitations)
 	InviteAdmin(ctx context.Context, request InviteAdminRequestObject) (InviteAdminResponseObject, error)
@@ -945,6 +1056,31 @@ func NewStrictHandler(ssi StrictServerInterface, middlewares []StrictMiddlewareF
 type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
+}
+
+// DisableAdminAccount operation middleware
+func (sh *strictHandler) DisableAdminAccount(ctx echo.Context, userId string) error {
+	var request DisableAdminAccountRequestObject
+
+	request.UserId = userId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DisableAdminAccount(ctx.Request().Context(), request.(DisableAdminAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DisableAdminAccount")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DisableAdminAccountResponseObject); ok {
+		return validResponse.VisitDisableAdminAccountResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
 }
 
 // InviteAdmin operation middleware
