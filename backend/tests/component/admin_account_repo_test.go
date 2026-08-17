@@ -16,6 +16,32 @@ import (
 	"poc-app-hydra/backend/auth/domain"
 )
 
+// isolateActiveSuperAdmins は既存の稼働中super_adminを一時的にdisabledへ倒し母数を確定させる（計数はDB全体を見るため）。
+// 対象UUIDを捕捉しt.Cleanupでinactiveへ復元する（全域UPDATEの非可逆な副作用を他テストへ残さない）。
+func isolateActiveSuperAdmins(t *testing.T, ctx context.Context) {
+	t.Helper()
+	rows, err := pool.Query(ctx, `SELECT u.user_uuid FROM auth.users u
+		JOIN auth.user_roles ur ON ur.user_uuid = u.user_uuid
+		WHERE ur.role = 'super_admin' AND u.status = 'inactive' AND u.deleted_at IS NULL`)
+	require.NoError(t, err)
+	var preexisting []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		require.NoError(t, rows.Scan(&id))
+		preexisting = append(preexisting, id)
+	}
+	require.NoError(t, rows.Err())
+	rows.Close()
+	if len(preexisting) == 0 {
+		return
+	}
+	_, err = pool.Exec(ctx, "UPDATE auth.users SET status = 'disabled' WHERE user_uuid = ANY($1)", preexisting)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "UPDATE auth.users SET status = 'inactive' WHERE user_uuid = ANY($1)", preexisting)
+	})
+}
+
 // seedAdmin は指定statusのユーザーを作成しrole付与してuser_uuidを返す（UC-014のCND-14計数検証用）
 func seedAdmin(t *testing.T, ctx context.Context, status, role string) uuid.UUID {
 	t.Helper()
@@ -66,28 +92,8 @@ func TestUC014_DisableAccount_ConcurrentDisable_ProtectsLastSuperAdmin(t *testin
 	ctx := context.Background()
 	repo := authdb.NewUserRepository(pool)
 
-	// グローバルなsuper_admin母数を確定させる（他テストのシード分を除外）: 既存の稼働中super_adminを
-	// 一時的にdisabledへ倒し、本テストの2人だけを稼働中にする。計数はDB全体を見るため母数固定が要る。
-	// NOTE: 全域UPDATEの副作用を残さないよう対象UUIDを捕捉しt.Cleanupでinactiveへ復元する（他テストへの非可逆汚染防止）
-	rows, err := pool.Query(ctx, `SELECT u.user_uuid FROM auth.users u
-		JOIN auth.user_roles ur ON ur.user_uuid = u.user_uuid
-		WHERE ur.role = 'super_admin' AND u.status = 'inactive' AND u.deleted_at IS NULL`)
-	require.NoError(t, err)
-	var preexisting []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		require.NoError(t, rows.Scan(&id))
-		preexisting = append(preexisting, id)
-	}
-	require.NoError(t, rows.Err())
-	rows.Close()
-	if len(preexisting) > 0 {
-		_, err = pool.Exec(ctx, "UPDATE auth.users SET status = 'disabled' WHERE user_uuid = ANY($1)", preexisting)
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			_, _ = pool.Exec(context.Background(), "UPDATE auth.users SET status = 'inactive' WHERE user_uuid = ANY($1)", preexisting)
-		})
-	}
+	// 本テストの2人だけを稼働中にする（計数はDB全体を見るため母数固定が要る・復元はt.Cleanup）
+	isolateActiveSuperAdmins(t, ctx)
 
 	a := seedAdmin(t, ctx, domain.StatusInactive, domain.RoleSuperAdmin)
 	b := seedAdmin(t, ctx, domain.StatusInactive, domain.RoleSuperAdmin)
