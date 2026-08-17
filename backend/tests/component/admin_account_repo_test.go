@@ -60,7 +60,8 @@ func TestUC014_CountActiveSuperAdmins_CountsOnlyInactiveSuperAdmins(t *testing.T
 }
 
 // UC-014 CND-14 TOCTOU: 2人の異なるsuper_adminを並行無効化しても、両方が成功して0人になってはならない。
-// FOR UPDATEロック＋EvalPlanQual再評価により、正確に1件が成功・1件がErrLastSuperAdminへ倒れ1人が残る。
+// RepeatableRead＋FOR UPDATEで並行無効化は直列化失敗(40001)→UpdateInTxリトライが新スナップショットで
+// 再評価し、正確に1件が成功・1件がErrLastSuperAdminへ倒れ1人が残る。
 func TestUC014_DisableAccount_ConcurrentDisable_ProtectsLastSuperAdmin(t *testing.T) {
 	ctx := context.Background()
 	repo := authdb.NewUserRepository(pool)
@@ -120,4 +121,23 @@ func TestUC014_DisableAccount_ConcurrentDisable_ProtectsLastSuperAdmin(t *testin
 	remaining, err := repo.CountActiveSuperAdmins(ctx)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, remaining, "稼働中super_adminが1人残る（0人化を防止）")
+}
+
+// UC-015: ReactivateAccountはdisabled→inactiveへ遷移し、遷移元がdisabledでなければ0行＝ErrNotDisabled（E3）。
+// 実DBで遷移元ガード（TransitionUserStatus WHERE status=disabled）が効くことを検証する。
+func TestUC015_ReactivateAccount_TransitionGuard_OnlyFromDisabled(t *testing.T) {
+	ctx := context.Background()
+	repo := authdb.NewUserRepository(pool)
+
+	// 無効化済みoperatorは再有効化に成功しinactiveへ遷移する
+	disabled := seedAdmin(t, ctx, domain.StatusDisabled, domain.RoleOperator)
+	require.NoError(t, repo.ReactivateAccount(ctx, disabled))
+	row, err := dbmodels.New(pool).GetUserByUuid(ctx, disabled)
+	require.NoError(t, err)
+	assert.Equal(t, domain.StatusInactive, row.Status, "disabled→inactiveへ遷移")
+
+	// 無効化されていない（inactive）アカウントの再有効化は遷移元ガードで0行＝ErrNotDisabled
+	notDisabled := seedAdmin(t, ctx, domain.StatusInactive, domain.RoleOperator)
+	err = repo.ReactivateAccount(ctx, notDisabled)
+	assert.ErrorIs(t, err, command.ErrNotDisabled, "遷移元がdisabledでなければErrNotDisabled（E3）")
 }

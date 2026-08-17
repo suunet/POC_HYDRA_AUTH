@@ -105,6 +105,7 @@ func newLoginTestEcho(t *testing.T, repo *fakeLoginRepository, lockout *fakeLock
 		command.NewInviteAdminHandler(&fakeInviteRepository{users: map[string]fakeInviteUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
 		command.NewAcceptInvitationHandler(&fakeAcceptInvitationRepository{records: map[string]domain.InvitationTokenRecord{}, users: map[string][]string{}}),
 		command.NewDisableAccountHandler(&fakeDisableRepository{}),
+		command.NewReactivateAccountHandler(&fakeReactivateRepository{}),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
