@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,6 +25,7 @@ type fakeDisableRepository struct {
 	roles       []string
 	status      string
 	found       bool
+	findErr     error // FindAccountForDisableの読取失敗注入
 	disableErr  error
 	disabled    []uuid.UUID // DisableAccount呼出の対象記録
 	gotSuper    bool        // 最後のDisableAccount呼出のisSuperAdmin
@@ -31,6 +33,9 @@ type fakeDisableRepository struct {
 }
 
 func (f *fakeDisableRepository) FindAccountForDisable(ctx context.Context, userUUID uuid.UUID) ([]string, string, bool, error) {
+	if f.findErr != nil {
+		return nil, "", false, f.findErr
+	}
 	return f.roles, f.status, f.found, nil
 }
 
@@ -184,6 +189,48 @@ func TestUC014_DisableAccount_LastSuperAdmin_Returns409(t *testing.T) {
 	var p commonhttp.Problem
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
 	assert.Equal(t, commonhttp.ProblemTypeBase+"last-super-admin", p.Type)
+}
+
+// UC-014 E5: 無効化Tx失敗（未分類エラー）は500 internal-error（Tx全ロールバック・ERROR記録済み）
+func TestUC014_DisableAccount_TxFailure_Returns500(t *testing.T) {
+	d := newTestDeps()
+	d.disableRepo.found = true
+	d.disableRepo.roles = []string{domain.RoleOperator}
+	d.disableRepo.status = domain.StatusInactive
+	d.disableRepo.disableErr = errors.New("boom")
+	key := testSigningKey(t)
+
+	rec := postDisable(t, newAuthTestEchoKeyed(t, d, key), superAdminAT(t, key), uuid.New().String())
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	var p commonhttp.Problem
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
+	assert.Equal(t, commonhttp.ProblemTypeBase+"internal-error", p.Type)
+}
+
+// UC-014 E5: 無効化Tx失敗はERRORログ「アカウント無効化トランザクション失敗」をctx付きで記録する（NFR-08）
+func TestUC014_DisableAccount_TxFailure_LogsError(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := applog.ContextWithLogger(context.Background(), applog.New(&buf, "auth-service"))
+	repo := &fakeDisableRepository{found: true, roles: []string{domain.RoleOperator}, status: domain.StatusInactive, disableErr: errors.New("boom")}
+
+	err := command.NewDisableAccountHandler(repo).Handle(ctx, "operator-1", uuid.New().String())
+	require.Error(t, err)
+	assert.Contains(t, buf.String(), "アカウント無効化トランザクション失敗", "外部依存失敗はERROR（NFR-08）")
+	assert.Contains(t, buf.String(), `"ctx":"account_disable"`)
+}
+
+// UC-014: 対象読取失敗（外部依存失敗）はERRORログを記録する（NFR-08・fail()ヘルパ系UseCaseへ整合。
+// HTTP写像は未分類エラー共通のdefault→500 internal-error＝E5テストが被覆）
+func TestUC014_DisableAccount_LookupFailure_LogsError(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := applog.ContextWithLogger(context.Background(), applog.New(&buf, "auth-service"))
+	repo := &fakeDisableRepository{findErr: errors.New("db down")}
+
+	err := command.NewDisableAccountHandler(repo).Handle(ctx, "operator-1", uuid.New().String())
+	require.Error(t, err)
+	assert.Contains(t, buf.String(), "アカウント無効化の対象読取に失敗", "読取失敗もERROR（NFR-08観測性の対称）")
+	assert.Contains(t, buf.String(), `"ctx":"account_disable"`)
 }
 
 // UC-014 監査INFO: 主成功で「アカウント無効化」をtarget/operatorのUUIDで記録する（NFR-07・BUC-A04）

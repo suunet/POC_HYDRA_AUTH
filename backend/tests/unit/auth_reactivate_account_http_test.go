@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,12 +25,16 @@ type fakeReactivateRepository struct {
 	roles         []string
 	status        string
 	found         bool
+	findErr       error // FindAccountForReactivateの読取失敗注入
 	reactivateErr error
 	reactivated   []uuid.UUID // ReactivateAccount呼出の対象記録
 	reactCall     int
 }
 
 func (f *fakeReactivateRepository) FindAccountForReactivate(ctx context.Context, userUUID uuid.UUID) ([]string, string, bool, error) {
+	if f.findErr != nil {
+		return nil, "", false, f.findErr
+	}
 	return f.roles, f.status, f.found, nil
 }
 
@@ -161,6 +166,48 @@ func TestUC015_ReactivateAccount_TransitionGuardZeroRows_Returns409(t *testing.T
 	var p commonhttp.Problem
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
 	assert.Equal(t, commonhttp.ProblemTypeBase+"account-not-disabled", p.Type)
+}
+
+// UC-015: 再有効化失敗（未分類エラー）は500 internal-error（ERROR記録済み・SCR-13と対称の500フォールバック）
+func TestUC015_ReactivateAccount_Failure_Returns500(t *testing.T) {
+	d := newTestDeps()
+	d.reactivateRepo.found = true
+	d.reactivateRepo.roles = []string{domain.RoleOperator}
+	d.reactivateRepo.status = domain.StatusDisabled
+	d.reactivateRepo.reactivateErr = errors.New("boom")
+	key := testSigningKey(t)
+
+	rec := postReactivate(t, newAuthTestEchoKeyed(t, d, key), superAdminAT(t, key), uuid.New().String())
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	var p commonhttp.Problem
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
+	assert.Equal(t, commonhttp.ProblemTypeBase+"internal-error", p.Type)
+}
+
+// UC-015: 再有効化失敗はERRORログ「アカウント再有効化に失敗」をctx付きで記録する（NFR-08）
+func TestUC015_ReactivateAccount_Failure_LogsError(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := applog.ContextWithLogger(context.Background(), applog.New(&buf, "auth-service"))
+	repo := &fakeReactivateRepository{found: true, roles: []string{domain.RoleOperator}, status: domain.StatusDisabled, reactivateErr: errors.New("boom")}
+
+	err := command.NewReactivateAccountHandler(repo).Handle(ctx, "operator-1", uuid.New().String())
+	require.Error(t, err)
+	assert.Contains(t, buf.String(), "アカウント再有効化に失敗", "外部依存失敗はERROR（NFR-08）")
+	assert.Contains(t, buf.String(), `"ctx":"account_reactivate"`)
+}
+
+// UC-015: 対象読取失敗（外部依存失敗）はERRORログを記録する（NFR-08・fail()ヘルパ系UseCaseへ整合。
+// HTTP写像は未分類エラー共通のdefault→500 internal-error＝Failureテストが被覆）
+func TestUC015_ReactivateAccount_LookupFailure_LogsError(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := applog.ContextWithLogger(context.Background(), applog.New(&buf, "auth-service"))
+	repo := &fakeReactivateRepository{findErr: errors.New("db down")}
+
+	err := command.NewReactivateAccountHandler(repo).Handle(ctx, "operator-1", uuid.New().String())
+	require.Error(t, err)
+	assert.Contains(t, buf.String(), "アカウント再有効化の対象読取に失敗", "読取失敗もERROR（NFR-08観測性の対称）")
+	assert.Contains(t, buf.String(), `"ctx":"account_reactivate"`)
 }
 
 // UC-015 監査INFO: 主成功で「アカウント再有効化」をtarget/operatorのUUIDで記録する（NFR-07・BUC-A05）
