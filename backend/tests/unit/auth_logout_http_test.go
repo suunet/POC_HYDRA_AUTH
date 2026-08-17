@@ -39,6 +39,7 @@ func newLogoutTestEcho(t *testing.T, repo *fakeRefreshRepository, key *rsa.Priva
 		command.NewConfirmPasswordResetHandler(&fakeResetConfirmRepository{records: map[string]domain.PasswordResetTokenRecord{}}),
 		command.NewInviteAdminHandler(&fakeInviteRepository{users: map[string]fakeInviteUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
 		command.NewAcceptInvitationHandler(&fakeAcceptInvitationRepository{records: map[string]domain.InvitationTokenRecord{}, users: map[string][]string{}}),
+		command.NewDisableAccountHandler(&fakeDisableRepository{}),
 	), commonhttp.JWTAuth(&key.PublicKey))
 	return e
 }
@@ -189,6 +190,7 @@ func TestUC007_LogoutHTTP_MissingMiddlewareWiring_FailsClosed401(t *testing.T) {
 		command.NewConfirmPasswordResetHandler(&fakeResetConfirmRepository{records: map[string]domain.PasswordResetTokenRecord{}}),
 		command.NewInviteAdminHandler(&fakeInviteRepository{users: map[string]fakeInviteUser{}}, &fakeRateLimiter{blocked: map[string]bool{}}, &fakeMailer{}),
 		command.NewAcceptInvitationHandler(&fakeAcceptInvitationRepository{records: map[string]domain.InvitationTokenRecord{}, users: map[string][]string{}}),
+		command.NewDisableAccountHandler(&fakeDisableRepository{}),
 	), passthrough)
 
 	res := postLogout(t, e, "Bearer "+accessTokenFor(t, key, uuid.New()), `{"refresh_token":"x"}`)
