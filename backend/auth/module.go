@@ -52,9 +52,11 @@ func NewModule(deps Deps) *Module {
 	confirmReset := command.NewConfirmPasswordResetHandler(users)
 	inviteAdmin := command.NewInviteAdminHandler(users, deps.InviteLimiter, deps.Mailer)
 	acceptInvite := command.NewAcceptInvitationHandler(users)
+	disableAccount := command.NewDisableAccountHandler(users)
+	reactivateAccount := command.NewReactivateAccountHandler(users)
 	return &Module{
 		pgxDb:        deps.PgxDb,
-		handler:      apihttp.NewHandler(register, verify, resend, login, refresh, logout, changePassword, requestReset, confirmReset, inviteAdmin, acceptInvite),
+		handler:      apihttp.NewHandler(register, verify, resend, login, refresh, logout, changePassword, requestReset, confirmReset, inviteAdmin, acceptInvite, disableAccount, reactivateAccount),
 		jwtPublicKey: &deps.JWTSigningKey.PublicKey,
 	}
 }

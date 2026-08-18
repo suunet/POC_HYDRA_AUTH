@@ -12,6 +12,24 @@ import (
 	"github.com/google/uuid"
 )
 
+const countActiveSuperAdmins = `-- name: CountActiveSuperAdmins :one
+SELECT count(*)
+FROM auth.users u
+JOIN auth.user_roles ur ON ur.user_uuid = u.user_uuid
+WHERE ur.role = 'super_admin'
+  AND u.status = 'inactive'
+  AND u.deleted_at IS NULL
+`
+
+// NOTE: CND-14: 稼働中（status='inactive'・削除除外）の super_admin 数。無効化済み/削除済みは含めない
+// （含めると最後の稼働中1人を無効化でき保護が破れる）。UC-014のE4判定に用いる
+func (q *Queries) CountActiveSuperAdmins(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveSuperAdmins)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT
 	user_uuid,
@@ -158,6 +176,41 @@ type InsertUserRoleParams struct {
 func (q *Queries) InsertUserRole(ctx context.Context, arg InsertUserRoleParams) error {
 	_, err := q.db.Exec(ctx, insertUserRole, arg.UserUuid, arg.Role)
 	return err
+}
+
+const lockActiveSuperAdmins = `-- name: LockActiveSuperAdmins :many
+SELECT u.user_uuid
+FROM auth.users u
+JOIN auth.user_roles ur ON ur.user_uuid = u.user_uuid
+WHERE ur.role = 'super_admin'
+  AND u.status = 'inactive'
+  AND u.deleted_at IS NULL
+ORDER BY u.user_uuid
+FOR UPDATE OF u
+`
+
+// NOTE: CND-14 TOCTOU: 稼働中super_admin行をFOR UPDATEでロックし無効化Tx内で件数評価する（最後の1人保護・UC-014 E4）。
+// Tx分離はRepeatableRead（common.UpdateInTx）。並行無効化が先にコミット済みだと本FOR UPDATEは直列化失敗
+// （40001）となり、UpdateInTxのリトライが新スナップショットで再評価する＝相手の無効化後の件数で判定される。
+// ORDER BYはロック取得順を全Txで一意にしデッドロックを防ぐ（異なる2人の並行無効化が逆順ロックで詰まらない）
+func (q *Queries) LockActiveSuperAdmins(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockActiveSuperAdmins)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var user_uuid uuid.UUID
+		if err := rows.Scan(&user_uuid); err != nil {
+			return nil, err
+		}
+		items = append(items, user_uuid)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const transitionUserStatus = `-- name: TransitionUserStatus :execrows

@@ -13,12 +13,19 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
+
+// AccountDisableResult defines model for AccountDisableResult.
+type AccountDisableResult struct {
+	// RevocationReason 常に account_disabled（VAR-10・FR-15・UC-014。失効した全RTの失効理由）
+	RevocationReason string `json:"revocation_reason"`
+}
 
 // AdminInvitationRequest defines model for AdminInvitationRequest.
 type AdminInvitationRequest struct {
@@ -245,6 +252,12 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// DisableAdminAccount request
+	DisableAdminAccount(ctx context.Context, userId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReactivateAdminAccount request
+	ReactivateAdminAccount(ctx context.Context, userId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// InviteAdminWithBody request with any body
 	InviteAdminWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -299,6 +312,30 @@ type ClientInterface interface {
 	RefreshTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	RefreshToken(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) DisableAdminAccount(ctx context.Context, userId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDisableAdminAccountRequest(c.Server, userId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReactivateAdminAccount(ctx context.Context, userId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReactivateAdminAccountRequest(c.Server, userId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) InviteAdminWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -563,6 +600,74 @@ func (c *Client) RefreshToken(ctx context.Context, body RefreshTokenJSONRequestB
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewDisableAdminAccountRequest generates requests for DisableAdminAccount
+func NewDisableAdminAccountRequest(server string, userId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "userId", runtime.ParamLocationPath, userId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/admin/accounts/%s/disable", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReactivateAdminAccountRequest generates requests for ReactivateAdminAccount
+func NewReactivateAdminAccountRequest(server string, userId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "userId", runtime.ParamLocationPath, userId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/admin/accounts/%s/reactivate", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewInviteAdminRequest calls the generic InviteAdmin builder with application/json body
@@ -1048,6 +1153,12 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// DisableAdminAccountWithResponse request
+	DisableAdminAccountWithResponse(ctx context.Context, userId string, reqEditors ...RequestEditorFn) (*DisableAdminAccountResponse, error)
+
+	// ReactivateAdminAccountWithResponse request
+	ReactivateAdminAccountWithResponse(ctx context.Context, userId string, reqEditors ...RequestEditorFn) (*ReactivateAdminAccountResponse, error)
+
 	// InviteAdminWithBodyWithResponse request with any body
 	InviteAdminWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InviteAdminResponse, error)
 
@@ -1102,6 +1213,61 @@ type ClientWithResponsesInterface interface {
 	RefreshTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error)
 
 	RefreshTokenWithResponse(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error)
+}
+
+type DisableAdminAccountResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	JSON200                   *AccountDisableResult
+	ApplicationproblemJSON400 *Problem
+	ApplicationproblemJSON401 *Problem
+	ApplicationproblemJSON403 *Problem
+	ApplicationproblemJSON404 *Problem
+	ApplicationproblemJSON409 *Problem
+	ApplicationproblemJSON500 *Problem
+}
+
+// Status returns HTTPResponse.Status
+func (r DisableAdminAccountResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DisableAdminAccountResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ReactivateAdminAccountResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	ApplicationproblemJSON400 *Problem
+	ApplicationproblemJSON401 *Problem
+	ApplicationproblemJSON403 *Problem
+	ApplicationproblemJSON404 *Problem
+	ApplicationproblemJSON409 *Problem
+	ApplicationproblemJSON500 *Problem
+}
+
+// Status returns HTTPResponse.Status
+func (r ReactivateAdminAccountResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReactivateAdminAccountResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type InviteAdminResponse struct {
@@ -1370,6 +1536,24 @@ func (r RefreshTokenResponse) StatusCode() int {
 	return 0
 }
 
+// DisableAdminAccountWithResponse request returning *DisableAdminAccountResponse
+func (c *ClientWithResponses) DisableAdminAccountWithResponse(ctx context.Context, userId string, reqEditors ...RequestEditorFn) (*DisableAdminAccountResponse, error) {
+	rsp, err := c.DisableAdminAccount(ctx, userId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDisableAdminAccountResponse(rsp)
+}
+
+// ReactivateAdminAccountWithResponse request returning *ReactivateAdminAccountResponse
+func (c *ClientWithResponses) ReactivateAdminAccountWithResponse(ctx context.Context, userId string, reqEditors ...RequestEditorFn) (*ReactivateAdminAccountResponse, error) {
+	rsp, err := c.ReactivateAdminAccount(ctx, userId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReactivateAdminAccountResponse(rsp)
+}
+
 // InviteAdminWithBodyWithResponse request with arbitrary body returning *InviteAdminResponse
 func (c *ClientWithResponses) InviteAdminWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InviteAdminResponse, error) {
 	rsp, err := c.InviteAdminWithBody(ctx, contentType, body, reqEditors...)
@@ -1555,6 +1739,135 @@ func (c *ClientWithResponses) RefreshTokenWithResponse(ctx context.Context, body
 		return nil, err
 	}
 	return ParseRefreshTokenResponse(rsp)
+}
+
+// ParseDisableAdminAccountResponse parses an HTTP response from a DisableAdminAccountWithResponse call
+func ParseDisableAdminAccountResponse(rsp *http.Response) (*DisableAdminAccountResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DisableAdminAccountResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AccountDisableResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReactivateAdminAccountResponse parses an HTTP response from a ReactivateAdminAccountWithResponse call
+func ParseReactivateAdminAccountResponse(rsp *http.Response) (*ReactivateAdminAccountResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReactivateAdminAccountResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseInviteAdminResponse parses an HTTP response from a InviteAdminWithResponse call

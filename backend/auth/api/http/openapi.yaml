@@ -566,6 +566,176 @@ paths:
                 type: https://example.com/probs/internal-error
                 title: Internal Server Error
                 status: 500
+  /admin/accounts/{userId}/disable:
+    post:
+      summary: 管理者アカウントを無効化する
+      operationId: disableAdminAccount
+      tags:
+        - commands
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 無効化対象ユーザーのUUID（形式不正はE1=404 user-not-foundへ合流＝存在有無の情報漏洩回避）
+      responses:
+        '200':
+          description: 無効化した（UC-014・FR-15。対象を無効化済みへ遷移し全RTを失効＝account_disabled）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDisableResult'
+        '400':
+          description: 対象が管理者ロール未保持（E2=not-admin-account・BUC-A04）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/not-admin-account
+                title: Bad Request
+                status: 400
+        '401':
+          description: アクセストークン検証失敗（M1・FR-19一様）
+          headers:
+            WWW-Authenticate:
+              description: Bearer チャレンジ
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/invalid-token
+                title: Unauthorized
+                status: 401
+        '403':
+          description: super_admin ロール不足（M2・CND-17 OR評価）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/forbidden
+                title: Forbidden
+                status: 403
+        '404':
+          description: 対象ユーザーが存在しない（E1=user-not-found・UUID形式不正も合流）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/user-not-found
+                title: Not Found
+                status: 404
+        '409':
+          description: 既に無効化済み（E3=account-already-disabled）または最後の稼働中super_admin（E4=last-super-admin・CND-14）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/last-super-admin
+                title: Conflict
+                status: 409
+        '500':
+          description: トランザクション失敗（E5=internal-error・無効化と全RT失効は全ロールバック済み）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/internal-error
+                title: Internal Server Error
+                status: 500
+  /admin/accounts/{userId}/reactivate:
+    post:
+      summary: 管理者アカウントを再有効化する
+      operationId: reactivateAdminAccount
+      tags:
+        - commands
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 再有効化対象ユーザーのUUID（形式不正はE1=404 user-not-foundへ合流＝存在有無の情報漏洩回避）
+      responses:
+        '200':
+          description: 再有効化した（UC-015・FR-16。disabled→未認証〔inactive〕へ遷移・セッションは作らず手動ログインを要求）
+        '400':
+          description: 対象が管理者ロール未保持（E2=not-admin-account・BUC-A05）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/not-admin-account
+                title: Bad Request
+                status: 400
+        '401':
+          description: アクセストークン検証失敗（M1・FR-19一様）
+          headers:
+            WWW-Authenticate:
+              description: Bearer チャレンジ
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/invalid-token
+                title: Unauthorized
+                status: 401
+        '403':
+          description: super_admin ロール不足（M2・CND-17 OR評価）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/forbidden
+                title: Forbidden
+                status: 403
+        '404':
+          description: 対象ユーザーが存在しない（E1=user-not-found・UUID形式不正も合流）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/user-not-found
+                title: Not Found
+                status: 404
+        '409':
+          description: 対象が無効化済みでない（E3=account-not-disabled・CND-13。遷移元ガード0行のレースも合流）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/account-not-disabled
+                title: Conflict
+                status: 409
+        '500':
+          description: 内部エラー（internal-error・再有効化に失敗。無効化API〔SCR-13〕と対称の普遍フォールバック）
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://example.com/probs/internal-error
+                title: Internal Server Error
+                status: 500
 components:
   securitySchemes:
     bearerAuth:
@@ -596,6 +766,14 @@ components:
         revocation_reason:
           type: string
           description: 常に password_changed（VAR-10・FR-10。クライアントの再ログイン誘導用。他フィールドなし）
+    AccountDisableResult:
+      type: object
+      required:
+        - revocation_reason
+      properties:
+        revocation_reason:
+          type: string
+          description: 常に account_disabled（VAR-10・FR-15・UC-014。失効した全RTの失効理由）
     LogoutRequest:
       type: object
       required:

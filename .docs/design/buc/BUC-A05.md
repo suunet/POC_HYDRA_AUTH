@@ -11,7 +11,7 @@
 | 関連FR | FR-16 |
 | 関連NFR | NFR-06, NFR-07, NFR-08, NFR-09 |
 | 関連情報 | INF-01（ユーザー情報） |
-| 関連条件 | CND-13（対象アカウントが無効化済みであること） |
+| 関連条件 | CND-13（対象アカウントが無効化済みであること）・CND-17（ロール認可のOR評価・`super_admin`） |
 | 事後状態 | STM-01.未認証 |
 
 ---
@@ -30,7 +30,7 @@
 2. システムは対象ユーザー（削除済みを除く）をDBで検索する
 3. システムは対象ユーザーが管理者ロール（`super_admin`・`operator`・`system_admin`）を持つことを確認する
 4. システムは対象ユーザーが無効化済みであることを確認する
-5. システムは対象ユーザーのアカウントを再有効化する（`未認証` 状態に遷移）
+5. システムは対象ユーザーのアカウントを再有効化する（`disabled` → `未認証`〔inactive〕へ遷移。遷移元 `disabled` ガード・0行はE3へ倒し二重再有効化の競合を閉じる）
 6. システムは200レスポンスを返す
 
 ### 代替フロー
@@ -41,11 +41,21 @@
 
 > 全ログにはNFR-09の必須フィールド（`ts`・`lvl`・`svc`・`ctx`・`trace_id`/`span_id`・`req_id`・`msg`）を含めること。以下の例示は差分フィールド（`ctx`・`msg`・`lvl`）のみを記載する。
 
+**M1. アクセストークン検証失敗（事前条件・FR-19）**
+
+- a. システムは処理を中断し、401 (Unauthorized)、`application/problem+json`、`type: https://example.com/probs/invalid-token`（一様）＋`WWW-Authenticate: Bearer` を返す（応答・ログともFR-19既定）
+
+**M2. `super_admin` ロール不足（事前条件・CND-17）**
+
+- a. システムは処理を中断し、403 (Forbidden)、`application/problem+json`、`type: https://example.com/probs/forbidden` を返す
+- b. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "account_reactivate", msg: "権限不足", lvl: "WARNING" }`。NFR-08）
+
 **E1. 対象ユーザーが存在しない場合（ステップ2）**
 
 - a. システムは処理を中断する
 - b. システムは404 (Not Found)、`application/problem+json`、`type: https://example.com/probs/user-not-found` を返す
 - c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "account_reactivate", msg: "対象ユーザーが存在しない", lvl: "WARNING" }`。NFR-08）
+- 備考: `userId` の形式不正（UUID parse不能）も本フロー（404 user-not-found）で扱う（BUC-A04 E1と同型）
 
 **E2. 対象ユーザーが管理者ロールを持たない場合（ステップ3）**
 
@@ -58,6 +68,7 @@
 - a. システムは処理を中断する
 - b. システムは409 (Conflict)、`application/problem+json`、`type: https://example.com/probs/account-not-disabled` を返す
 - c. 監査ログ対象外。ただしビジネス例外としてWARNINGログを出力する（`{ ctx: "account_reactivate", msg: "無効化されていないアカウントへの再有効化試行", lvl: "WARNING" }`。NFR-08）
+- 備考: ステップ4の読取チェックに加え、ステップ5の遷移元 `disabled` ガード（0行）でも本エラーへ合流し、読取〜遷移間の並行競合（二重再有効化）を閉じる（BUC-A04 E3と対称）
 
 ---
 
@@ -71,12 +82,14 @@ skinparam backgroundColor White
 actor "管理者\n(super_admin)" as 管理者
 
 boundary "POST /admin/accounts/:userId/reactivate" as 再有効化API
+control "FR-19 JWT検証 + ロール認可(M1/M2)" as 認可MW
 control "AccountReactivateUseCase" as ユースケース
 entity "UserRepository" as ユーザーRepo
 
 管理者 --> 再有効化API : userId\n[Authorization: Bearer <accessToken>]
 
-再有効化API --> ユースケース : reactivate(userId)
+再有効化API --> 認可MW : M1(AT検証・401一様) / M2(super_admin・403)
+認可MW --> ユースケース : reactivate(userId, operator=sub)
 
 ユースケース --> ユーザーRepo : findById(userId, excludeDeleted: true)
 ユースケース --> ユースケース : checkAdminRole(user)
@@ -99,6 +112,12 @@ sequenceDiagram
   participant UseCase as ユースケース
   participant UserRepo as ユーザーRepo
   Admin->>ReactivateAPI: POST /admin/accounts/:userId/reactivate<br/>[Authorization: Bearer <accessToken>]
+  alt M1: AT検証失敗（FR-19）
+  ReactivateAPI-->>Admin: 401 invalid-token（一様）+ WWW-Authenticate: Bearer
+  end
+  alt M2: super_adminロール不足（CND-17）
+  ReactivateAPI-->>Admin: 403 forbidden
+  end
   ReactivateAPI->>UseCase: reactivate(userId)
   UseCase->>UserRepo: findById(userId, excludeDeleted: true)
   UserRepo-->>UseCase: result
@@ -116,8 +135,9 @@ sequenceDiagram
   UseCase-->>ReactivateAPI: AccountNotDisabledError
   ReactivateAPI-->>Admin: 409 Conflict<br/>application/problem+json<br/>type: .../account-not-disabled
   end
-  UseCase->>UserRepo: reactivate(userId)
+  UseCase->>UserRepo: reactivate(userId)（TransitionUserStatus・遷移元disabled固定・0行→E3）
   UserRepo-->>UseCase: updated
+  Note right of UseCase: INFO 監査ログ（再有効化・target=対象user_id・operator=sub）<br/>セッションは作らない（FR-16）
   UseCase-->>ReactivateAPI: success
   ReactivateAPI-->>Admin: 200 OK
 ```
@@ -128,7 +148,7 @@ sequenceDiagram
 
 | イベント | レベル | ターゲット | 備考 |
 |----------|--------|------------|------|
-| アカウント再有効化 | INFO | 対象user_id | 基本フロー完了時。操作者の管理者IDも記録する |
+| アカウント再有効化 | INFO | 対象user_id | 基本フロー完了時。操作者の管理者ID（AT `sub`）も `operator` として記録する（対象user_id・操作者subともUUID＝NFR-09機密に非該当） |
 
 ---
 
